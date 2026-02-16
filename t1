@@ -1,0 +1,2658 @@
+ 
+
+
+
+ 
+
+
+   FUNCTIONAL DESIGN
+	
+
+
+
+
+
+
+
+
+Prime Therapeutics
+
+
+
+
+
+
+Manage Billing
+
+
+
+
+
+
+     
+ 
+
+Author:		RIA
+Creation Date:		July 03, 2025
+Last Updated:		July 03October 28, 2025
+Version:		1.07
+Requirements Traceability:		
+Fit-Gap Extension IDs:	
+Repository Link:			
+
+	
+
+
+Sign Off
+RIA Approval 	Name <email id>
+Client Approval	Name <email id>
+
+1	DOCUMENT CONTROL
+1.1	Change Log
+Date	Author	Version	Change Reference
+Aug-8-2025	RIA Advisors	Draft	Draft Version
+Sep 5, 2025	RIA	1.1	Added design for Claim, ancillary and MedPharm Invoice
+Sept 15, 2025	RIA	1.2	Section 4.2.4 - Statement Construct and 4.2.5 - Supplemental File added
+October 2, 2025	RIA	1.3	Updated for PT-233.
+October 3, 2025	RIA	1.4	Updated for PT-232.
+Invoice Bill to address to come from Bill group Person if available else from Client.
+Added logic to REF ID value
+October 15,2025	RIA	1.5	No-Bill No-Pay – Impact to Claim Invoice.
+October 21,2025	RIA	1.6	Section 4.5 - ORMB to GCP Ancillary Extract
+October 28, 2025	RIA	1.7	Updated for PT-233 new Plugin Spot
+
+1.2	Reviewers
+Name	Role
+	
+	
+	
+	
+	
+	
+1.3	Related Documents
+Name	Version	Path
+		
+
+
+2	CONTENTS
+1	Document Control	3
+1.1	Change Log	3
+1.2	Reviewers	3
+1.3	Related Documents	3
+2	Contents	4
+3	Solution Overview	5
+3.1	Bill Review	5
+3.2	Bill Due Date	5
+3.3	Bill Accounting Date	5
+4	Solution Components	7
+4.1	Calculate Override Due Date	7
+4.2	Invoicing and Other Client Deliverables	7
+4.3	Client Billing Statement PDF generation	28
+4.4	Client Billing Invoice Supplemental file generation	41
+4.5	ORMB to GCP – Ancillary Extract	71
+4.6	Alternate Bill Number	75
+4.7	Bill Hold at Bill Level/Bill Group Level	77
+5	Configuration	80
+5.1	Calendar	80
+5.2	Bill Route Types	80
+5.3	Characteristic Type	80
+5.4	Extendable Lookup	80
+5.5	To Do Type	81
+6	Appendix	82
+
+
+ 
+3	SOLUTION OVERVIEW
+Bills are generated for an individual account following a scheduled bill cycle or via an ad-hoc invoice request.  An account is eligible for billing if:
+•	The account does not already have a pending bill – there can only be one pending bill associated with an account at any given time.
+•	The account does not have a bill after date that is on or greater than the cut-off date – the bill after date is used to suspend billing for an account until the date has elapsed. 
+
+As part of bill generation, freezable bill segment financial transaction/s are created from the account billable charges, and any configured bill review logic is evaluated.  If bill review conditions are met, the bill is left in pending status and a to do entry is created to notify the appropriate user/s.  On review, the user has the option to delete or complete the bill.  If bill review is not required, the bill is completed, and bill data will be transformed in determined invoice layout based on the invoice type.
+
+ 
+
+3.1	Bill Review
+TBD
+
+
+3.2	Bill Due Date
+The bill due date is calculated as part of the bill completion process.  System calculates the due date, based on Business or Calendar Days (Configurable). The due date will be calculated by adding “X” number of days defined on the account for the characteristic “Payment Terms (Days After Bill Date)” on the account along with considering the calendar type defined on the account. X + billing date will determine the due date and will be stamped on the invoice.
+
+3.3	Bill Accounting Date
+Accounting Date of Bills in ORMB are usually controlled of the Bill Cycle Configuration (if the Bills are generated through the Billing Cycle) or the Process Date if Bills are manually generated and finalize.
+
+Transaction in a Bill in Prime should only have one Accounting Date (Journal Date).
+Bill’s Financial Transaction will post on the Accounting Period for the Latest Transaction Cycle Date if the Accounting Period is still open when the Bill is Finalized. If the Accounting Period is already closed relevant to the Latest Transaction Dates, the Financial Transaction will post to the current Open Accounting Period (Process Date).
+
+4	SOLUTION COMPONENTS
+4.1	Calculate Override Due Date
+Bill Due date will be calculated based on payment terms on defined on client. The due date will be further extended for both Work and Calendar payment terms if calculated due date is falling on weekend or holiday. New Override due date algorithm will be configured on customer class. Define a work Calendar with Saturday and Sunday as non-working days, also define the applicable holidays (this will be business calendar)
+
+This algorithm calculates the due date based on the cycle end date and invoice date of account. Accounts will be set up with set of payment term attributes. 
+
+Algorithm Processing:
+
+Fetch Net Fee Term and Net Fee term type Account Characteristics using Bill’s account Id. 
+If Net Fee Term Type is not found, default to ‘B’.
+If Net Fee Terms type is ‘B’ calculate bill due date as bill date + no of days defined on net fee term (exclude holiday(refer work calendar for holiday), Saturday and Sunday in days counting). IF net fee term is ‘C’ then calculate bill due date as bill date+ no of days defined on net fee term (include holiday, Saturday and Sunday). If the calculated due date is either Saturday, Sunday or any holiday (check against work calendar holidays), then further add 1 or more day to due date so that calculated due date should always fall on Work day.
+
+Algorithm Parameter:
+
+Net Fee Term Char Type: CM-CALBUCMCFTRMS
+Fee Term Type Char Type: CM-NETRMCMCFTRMT
+Work Calendar: USWORK
+Calendar Code: C
+Business Code: B
+
+Refer Below examples:
+
+If Bill date is 16th May (Friday) and Payment terms is 5 Calendar days – then due date will be 21st may (weekend is including in adding 5 days to bill date)
+If Bill date is 16th May (Friday) and Payment terms is 5 Workdays – then due date will be 23rd may. (weekend excluded in adding 5 days to bill date)
+If Bill date was 20th May (Tuesday) and Payment terms is 5 Calendar days- then due date will be calculated as 27th May (as bill date +5 days is weekend(25th) and next day(26Th) is holiday, so due date will be further pushed to next day)
+If Bill date was 19th May (Monday) and Payment terms is 5 Workdays- then due date will be calculated as 27th May (as bill date +5 days is weekend(24th) and next day(25th) is weekend and next day(26th) is holiday).
+
+
+4.2	Invoicing and Other Client Deliverables
+There are 2 Invoice PDFs to be created- 
+1.	Consolidated Invoice: This will be an invoice at the parent level
+2.	Individual Invoice(s) – This is applicable whenever there are multiple billing groups under the parent customer. In that case there will “N” number of invoices which will be generated
+Once the Bill is completed, 2 Invoice PDFs should be generated. Actual generation of PDF needs to be done via FOP integration and the PDFs should be stored to a pre-determined location.
+
+4.2.1	Billing Invoice PDF generation - Claims
+Prime business team has shared the invoice layout for consolidated and individual invoices, which are stored at the following location
+ORMB_Invoice_Mockups_20250718_To RIA.xlsx
+XML Layout - Claims_Invoice.xml
+The layout for the invoices at the billing group level (group/account/carrier/parent) or the consolidated invoice is same. Just that the rollup needs to happen. Design for Consolidated Statement will be created separately. This design is only for the Bill level Invoice PDF.
+The Labels can be hard-coded in the FOP template itself using the sample.
+This code is being enhanced to support NO Bill- No Pay requirement. See below the Mock-up for a Claim Invoice having “No-Bill” Claims included. Additional summary lines and additional Page to be created only if such No-Bill claims are available else these labels also should not be created
+NoBill_NoPay Invoice Mockup.xlsx
+
+Claim Mapping for Template
+
+Variable Name	Sample Value from PDF	XML Element	Mapping 
+Logo Code	Prime Therapeutics	logoCd	Refer extendable lookup CM-MarketsExtLookup
+For Logo Code
+From Bil’s Account – Main Person- Get Parent Person. From Parent customer get the Industry characteristic and for this value check the logo code
+Prime Address	Prime Therapeutics LLC
+2900 Ames Crossing Road, Suite 200
+Eagan, MN  55121
+	primeAdress Group	Refer extendable lookup CM-MarketsExtLookup, using Industry of Parent customer as the extendable lookup value
+For “Prime Address”
+Prime Email	www.primetherapeutics.com
+emailId	Refer extendable lookup CM-MarketsExtLookup, using Industry of Parent customer as the extendable lookup value
+
+Bill To 
+Name	Emblem Health	address1	Bill Group’s Bill To characteristic, if available
+ELSE
+Client’s Entity Name (At Parent Customer)
+Bill To
+Carrier/Account/Group	ABC123 Account	address2	Information can be fetched from the bill levels associated with billing group.
+
+Get the Bill Group id from Bill’s Account’s Main person
+
+SELECT DISTINCT LVL ||':'||
+CASE WHEN LVL='CARRIER' THEN (SELECT DISTINCT BILL_LVL_2 FROM C1_BILL_LVL WHERE BILL_LVL_1= 'CLAIM' AND BILLING_GROUP_ID = :BGID)
+WHEN LVL='ACCOUNT' THEN (SELECT DISTINCT BILL_LVL_3 FROM C1_BILL_LVL WHERE BILL_LVL_1= 'CLAIM' AND BILLING_GROUP_ID = :BGID)
+ELSE (SELECT DISTINCT BILL_LVL_4 FROM C1_BILL_LVL WHERE BILL_LVL_1= 'CLAIM' AND BILLING_GROUP_ID = :BGID)
+END AS VAL FROM (
+SELECT BILLING_GROUP_ID,
+CASE WHEN ( BO_STATUS_CD ='ACTIVE' AND BILL_LVL_1 ='CLAIM' 
+AND TRIM(BILL_LVL_2) IS NOT NULL AND BILL_LVL_3 IS NULL AND BILL_LVL_4 IS NULL 
+) THEN 'CARRIER'
+WHEN ( BO_STATUS_CD ='ACTIVE' AND BILL_LVL_1 ='CLAIM' 
+AND TRIM(BILL_LVL_2) IS NOT NULL AND BILL_LVL_3 IS NOT NULL AND BILL_LVL_4 IS NULL 
+) THEN 'ACCOUNT'
+ELSE 'GROUP'
+END AS LVL
+FROM C1_BILL_LVL WHERE BILLING_GROUP_ID = :BGID)
+Bill To Address1 and 2	Division XYX Street	address3	Address 1+ Address 2 for the Bill Group, if available. Else Address from Client
+Client’s Adress 1 +’,’+ Client’s  Adress 2
+Bill To City, State and Zip	PITTSBURGH, PA,15221	address4	City + state +Zip for the Bill Group, if available. Else Address from Client
+
+Client’s city +’,’+ Client’s  State + ‘,’ + Client’s Zip
+			
+Invoice Date	05/01/2025	invoiceDate	BILL_DT
+Billing Period	2/17/2025 - 2/23/2025	billingPeriod	 SELECT MAX(START_DT) FROM CI_BSEG WHERE BILL_ID = :BILL_ID
++ ‘-‘
+SELECT MAX(END_DT) FROM CI_BSEG WHERE BILL_ID = :BILL_ID
+Customer Id	10003	customerId	CLIENT_ID (Parent Customer’s Primary identifier)
+Invoice Number	1587139	InvoiceNumber	BILL_ID
+Payment Terms	Net 3 days	paymentTerms	CM-NETRM characteristic on Bill’s Account
+Payment Due Date	05/08/2025	dueDate	DUE_DT
+PO Number	4700013587LN10	PONumber	Adhoc Characteristic value from Parent for characteristic type CMPONUMB
+claimDetails
+totalClaimsQuantity
+Quantity by Channel	200		SELECT BCHAR.ADHOC_CHAR_VAL CHANNEL,SUM(DETAIL.TXN_VOL) QUANTITY
+FROM CI_TXN_DETAIL DETAIL,CI_TXN_DTL_PRITM PRITM,CI_BSEG BSEG, CI_BSEG_CALC CALC,CI_BILL_CHG_CHAR BCHAR,CI_BILL_CHG CHG,
+CI_PRICEITEM_CHAR PC
+WHERE DETAIL.TXN_DETAIL_ID = PRITM.TXN_DETAIL_ID
+AND BSEG.BILL_ID = :BILL_ID
+AND BSEG.BSEG_ID =CALC.BSEG_ID
+AND PRITM.BILLABLE_CHG_ID = CALC.BILLABLE_CHG_ID
+AND DETAIL.BO_STATUS_CD = 'COMP'
+AND CALC.BILLABLE_CHG_ID = BCHAR.BILLABLE_CHG_ID
+AND BCHAR.CHAR_TYPE_CD = 'CM-CLMC'
+AND BCHAR.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID
+AND CHG.PRICEITEM_CD = PC.PRICEITEM_CD
+AND PC.CHAR_TYPE_CD = 'CMPRDCAT'
+AND PC.CHAR_VAL ='COST'
+AND DETAIL.UDF_CHAR_18 <> 'R'
+GROUP BY BCHAR.ADHOC_CHAR_VAL
+4Ingredient Cost by Channel	$100.00	description
+retail
+mailOrder
+memberSubmitted
+
+
+	SELECT SUBSTR(LN.DESCR_ON_BILL,2,80)LNDESCR, BCHAR.ADHOC_CHAR_VAL CHANNEL,SUM(LN.CALC_AMT)
+FROM CI_BSEG_CALC_LN LN, CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG_CHAR BCHAR
+WHERE BSEG.BILL_ID = :BILL_ID
+AND BSEG.BSEG_ID = CALC.BSEG_ID
+AND CALC.BSEG_ID = LN.BSEG_ID
+AND CALC.BILLABLE_CHG_ID = BCHAR.BILLABLE_CHG_ID
+AND TRIM(BCHAR.CHAR_TYPE_CD) = :CHANNEL
+AND SUBSTR(LN.DESCR_ON_BILL,1,1) NOT IN('Z’, '1', '2', '3', '4', '5')<> ‘Z’
+AND SUBSTR(LN.DESCR_ON_BILL,2,3) <>’ZNB’
+GROUP BY LN.DESCR_ON_BILL, BCHAR.ADHOC_CHAR_VAL
+ORDER BY LN.DESCR_ON_BILL, BCHAR.ADHOC_CHAR_VAL,LN.DESCR_ON_BILL
+Total Billed	$565.00		Sum of all channel amounts for every unique Description on Bill
+End of Claim Entry
+Dispensing Fee	$200.00		See Query above to get amounts by Channel and Claim line and create Claim entry group
+Tax	$300.00		See Query above to get amounts by Channel and Claim line and create Claim entry group
+Member Responsibility	$-50.00		See Query above to get amounts by Channel and Claim line and create Claim entry group
+Other Payer Responsibility	$-25.00		See Query above to get amounts by Channel and Claim line and create Claim entry group
+Admin Fee	$40.00		See Query above to get amounts by Channel and Claim line and create Claim entry group
+End of Claim Cost
+totalClaimsAmount
+Retail		retail	Sum across all claim entries for Retail Channel
+Mail Order		mailOrder	Sum across all claim entries for Mail Order Channel
+Specialty		speciality	Sum across all claim entries for Speciality Channel
+Member Submitted		memberSubmitted	Sum across all claim entries for Member Submitted Channel
+Total		totalBilled	Sum of all amounts above across channels
+Less No Cost Claims (Please keep this Configurable on ORMB side- Algo parm?)
+
+Populate this line only if the query has non-zero result		noBillCredit	SELECT :LessNoCostClaims, BCHAR.ADHOC_CHAR_VAL CHANNEL,SUM(LN.CALC_AMT)
+FROM CI_BSEG_CALC_LN LN, CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG_CHAR BCHAR
+WHERE BSEG.BILL_ID = :BILL_ID
+AND BSEG.BSEG_ID = CALC.BSEG_ID
+AND CALC.BSEG_ID = LN.BSEG_ID
+AND CALC.BILLABLE_CHG_ID = BCHAR.BILLABLE_CHG_ID
+AND BCHAR.CHAR_TYPE_CD = :CHANNEL
+AND SUBSTR(LN.DESCR_ON_BILL,21,3) ='ZNB'
+GROUP BY :LessNoCostClaims, BCHAR.ADHOC_CHAR_VAL
+FWA Adjustment (This should be description of the Adjustment Type)		fwaAdjustment	SELECT DESCR_ON_BILL,SUM(CUR_AMT) FROM CI_FT FT,CI_ADJ_TYPE_L ADJL WHERE PARENT_ID = 'FWARECOV'
+AND FT_TYPE_FLG IN ('AD','AX')
+AND BILL_ID = :BILL_ID
+AND FT.PARENT_ID = ADJL.ADJ_TYPE_CD
+GROUP BY DESCR_ON_BILL
+Net Total
+Populate this only if Less No Cost claims line has a non-zero result
+OR
+FWA Adjustment line has non-zero result		netTotal	totalBilled + noBillCredit by channel + fwaAdjustment
+End of  totalClaimsAmount
+Remit To	Prime Therapeutics, P.O. Box 860466 Minneapolis, MN 55486-0466		Refer extendable lookup CM-MarketsExtLookup For “Remit To”
+Wire To	Wire & ACH Transfer Instructions:  U.S. Bank, N.A., 800 Nicolett Mall, Minneapolis, MN 55402
+ABA# 123000848, Account Name:  Prime Therapeutics LLC
+Beneficiary Account Number (Wire):  153910871687, Receiving Account Number (ACH):  15310871687
+Please Reference Invoice Number		Refer extendable lookup CM-MarketsExtLookup For “Wire To”
+Prime Contact Email	xxxxx@primetherapeutics.com		Refer extendable lookup CM-MarketsExtLookup For “Prime Contact Email”
+IF the Less No Cost Claims has non-zero value then populate additional Page for No Cost Claim summary. Else do not create this page.  Header values are same as first page
+NO COST CLAIM SUMMARY
+Pharmacy Direct Pay
+Keep this title configurable in ORMB			Default (Read value from Parameter)
+Quantity by channel for No Cost Claim Summary			SELECT BCHAR.ADHOC_CHAR_VAL CHANNEL,SUM(DETAIL.TXN_VOL) QUANTITY
+FROM CI_TXN_DETAIL DETAIL,CI_TXN_DTL_PRITM PRITM,CI_BSEG BSEG, CI_BSEG_CALC CALC,CI_BILL_CHG_CHAR BCHAR,CI_BILL_CHG CHG,
+CI_PRICEITEM_CHAR PC
+WHERE DETAIL.TXN_DETAIL_ID = PRITM.TXN_DETAIL_ID
+AND BSEG.BILL_ID = :BILL_ID
+AND BSEG.BSEG_ID =CALC.BSEG_ID
+AND PRITM.BILLABLE_CHG_ID = CALC.BILLABLE_CHG_ID
+AND DETAIL.BO_STATUS_CD = 'COMP'
+AND CALC.BILLABLE_CHG_ID = BCHAR.BILLABLE_CHG_ID
+AND BCHAR.CHAR_TYPE_CD = 'CM-CLMC'
+AND BCHAR.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID
+AND CHG.PRICEITEM_CD = PC.PRICEITEM_CD
+AND PC.CHAR_TYPE_CD = 'CMPRDCAT'
+AND PC.CHAR_VAL ='COST'
+AND DETAIL.UDF_CHAR_48 = 'NB'
+AND DETAIL.UDF_CHAR_18 <> 'R'
+GROUP BY BCHAR.ADHOC_CHAR_VAL
+Line Amounts by channel for No Cost Claim Summary			SELECT SUBSTR(LN.DESCR_ON_BILL,4,80)LNDESCR, BCHAR.ADHOC_CHAR_VAL CHANNEL,SUM(LN.CALC_AMT*-1)
+FROM CI_BSEG_CALC_LN LN, CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG_CHAR BCHAR
+WHERE BSEG.BILL_ID = :BILL_ID
+AND BSEG.BSEG_ID = CALC.BSEG_ID
+AND CALC.BSEG_ID = LN.BSEG_ID
+AND CALC.BILLABLE_CHG_ID = BCHAR.BILLABLE_CHG_ID
+AND TRIM(BCHAR.CHAR_TYPE_CD) = :CHANNEL
+AND SUBSTR(LN.DESCR_ON_BILL,2,3) ='ZNB'
+GROUP BY LN.DESCR_ON_BILL, BCHAR.ADHOC_CHAR_VAL
+ORDER BY LN.DESCR_ON_BILL, BCHAR.ADHOC_CHAR_VAL,LN.DESCR_ON_BILL
+Processing Logic
+New Invoice Extract batch will be developed to select all Bill Routing records that are not already extracted and the Extract algorithm will be triggered on the CLAIM Bill Route type.
+The Bill route type extract algorithm will contain the logic to create the Invoice in required format using mapping provided above
+File naming convention for Individual Invoice PDF –
+The logic to derive the file naming convention is consistent for both Emblem Health and Gold Coast.
+1.	Retrieve Parent Person ID
+o	Extract the Parent Person ID from the associated work unit.
+2.	Access File Naming Configuration
+o	Use the Parent Person Characteristic CM-COAID to identify the relevant extendable lookup name.
+o	If extendable lookup parent code is not found for given coalition id, then default to STRD (Standard) extendable lookup
+3.	Fetch Naming Format
+o	Query the identified extendable lookup to retrieve the value for "Electronic File Naming Format".
+o	Store this value in a string variable, e.g., fileNameElectronic.
+4.	Dynamic Placeholder Replacement Logic
+Based on the contents of fileNameElectronic, apply the following transformations:
+o	If fileNameElectronic contains <ClientID>
+	Retrieve the Carrier ID from the work unit.
+	Replace <ClientID> in fileNameElectronic with the Carrier ID.
+o	Else If fileNameElectronic contains <ENV> :
+	Retrieve the Environment value from algorithm parameter.
+	Replace <ENV> in fileNameElectronic with the actual environment string.
+o	Else If fileNameElectronic contains <Account#> :
+	Retrieve the BILL_LVL_3 from bill group
+	Replace <Account#> in fileNameElectronic with the actual account string.
+o	Else If fileNameElectronic contains <YYYYMMDDHHmmSS> :
+	Get the current system date and format it as YYYYMMDDHHmmSS.
+	Replace <YYYYMMDDHHmmSS> in fileNameElectronic with the formatted timestamp.
+o	Else If fileNameElectronic contains <YYYYMMDD>:
+	Get the current system date and format it as YYYYMMDD.
+	Replace <YYYYMMDD> in fileNameElectronic with the formatted date.
+5.	Final Output
+o	The resulting value of fileNameElectronic after all substitutions will be used as the final file name for the extract.
+6.	Folder path – Retrieve from extendable lookup – value for “OCI Folder Path”
+o	Add logic based on C1-CFS feature configuration value – Local Vs OCI
+
+
+4.2.2	Billing Invoice PDF generation - Ancillary
+Prime business team has shared the invoice layout for consolidated and individual invoices for ancillary, which are stored at the following location
+ORMB_Invoice_Mockups_20250718_To RIA.xlsx
+XML Layout -     Ancillary_Invoice.xml
+
+
+The Labels can be hard-coded in the FOP template itself using the sample.
+This extract algorithm should be attached to ANCIL Bill Route type
+Variable Name	Sample Value from PDF	XML Element	Mapping 
+Summary Page
+Logo Code	Prime Therapeutics	logoCd	Refer extendable lookup CM-MarketsExtLookup For Logo Code
+From Bil’s Account – Main Person- Get Parent Person. From Parent customer get the Industry characteristic and for this value check the logo code
+primeAddress
+Prime Address	Prime Therapeutics LLC
+2900 Ames Crossing Road, Suite 200
+Eagan, MN  55121
+www.primetherapeutics.com
+address1 thru
+address4	Refer extendable lookup CM-MarketsExtLookup For “Prime Address”
+billToInfo
+Bill To 
+Name	Emblem Health	address1	Bill Group’s Bill To characteristic, if available
+ELSE
+Client’s Entity Name (At Parent Customer)
+Bill To
+Carrier/Account/Group	Carrier:ABC1	address2	Information can be fetched from the bill levels associated with billing group.
+Get the Bill Group id from Bill’s Account’s Main person
+
+SELECT DISTINCT LVL ||':'||
+CASE WHEN LVL='CARRIER' THEN (SELECT DISTINCT BILL_LVL_2 FROM C1_BILL_LVL WHERE BILL_LVL_1= 'ANCIL' AND BILLING_GROUP_ID = :BGID)
+WHEN LVL='ACCOUNT' THEN (SELECT DISTINCT BILL_LVL_3 FROM C1_BILL_LVL WHERE BILL_LVL_1= 'ANCIL' AND BILLING_GROUP_ID = :BGID)
+ELSE (SELECT DISTINCT BILL_LVL_4 FROM C1_BILL_LVL WHERE BILL_LVL_1= 'ANCIL' AND BILLING_GROUP_ID = :BGID)
+END AS VAL FROM (
+SELECT BILLING_GROUP_ID,
+CASE WHEN ( BO_STATUS_CD ='ACTIVE' AND BILL_LVL_1 ='ANCIL' 
+AND TRIM(BILL_LVL_2) IS NOT NULL AND BILL_LVL_3 IS NULL AND BILL_LVL_4 IS NULL 
+) THEN 'CARRIER'
+WHEN ( BO_STATUS_CD ='ACTIVE' AND BILL_LVL_1 ='ANCIL' 
+AND TRIM(BILL_LVL_2) IS NOT NULL AND BILL_LVL_3 IS NOT NULL AND BILL_LVL_4 IS NULL 
+) THEN 'ACCOUNT'
+ELSE 'GROUP'
+END AS LVL
+FROM C1_BILL_LVL WHERE BILLING_GROUP_ID = :BGID)
+Bill To Address1 and 2	1001 BRINTON ROAD	address3	Address 1+ Address 2 for the Bill Group, if available. Else Address from Client
+Client’s Adress 1 and 2
+Bill To City State and Zip	PITTSBURGH,PA,15221	address4	City State Zip  for the Bill Group, if available. Else Address from Client
+Client’s  City, State and Zip (Comma separated)
+Invoice Date	05/01/2025	invoiceDate	BILL_DT
+Billing Period	2/17/2025 - 2/23/2025	billingPeriod	SELECT MAX(START_DT) FROM CI_BSEG WHERE BILL_ID = :BILL_ID
++ ‘-‘
+SELECT MAX(END_DT) FROM CI_BSEG WHERE BILL_ID = :BILL_ID 
+Customer	10003	customerId	CLIENT_ID
+Invoice Number	1587139	invoiceNumber	BILL_ID
+Payment Due Date	05/08/2025	dueDate	DUE_DT
+Payment Terms	Net 30 days	paymentTerms	CM-NETRM characteristic  from Bill’s Account 
+PO Number	4700013587LN10	poNumber	Adhoc Characteristic value from Parent for characteristic type CMPONUMB
+ancillaryDetails
+ancillaryCost
+ancillaryCostEntry – Create list for every row returned from query below
+ITEM	20054 - Program Management Fee	item	SELECT PRICEITEM_CD |’-‘| DESCR  from query below.
+SELECT PI.PRICEITEM_CD,PI.DESCR,NVL (SUM(SVC_QTY),0)QTY,LNCHAR.ADHOC_CHAR_VAL RATE,NVL(SUM(CALC_AMT) ,0) AMT
+FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG,
+CI_BCHG_SQ SQ,CI_PRICEITEM_L PI,CI_BSEG_CL_CHAR LNCHAR
+WHERE BSEG.BILL_ID = :BILL_ID
+and BSEG.BSEG_ID = CALC.BSEG_ID
+AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID
+AND CHG.BILLABLE_CHG_ID = SQ.BILLABLE_CHG_ID
+AND CHG.PRICEITEM_CD=PI.PRICEITEM_CD
+AND LNCHAR.BSEG_ID =BSEG.BSEG_ID
+AND LNCHAR.CHAR_TYPE_CD = 'RVALUECH'
+GROUP BY PI.PRICEITEM_CD,PI.DESCR,LNCHAR.ADHOC_CHAR_VAL
+
+UNION
+SELECT PI.PRICEITEM_CD,PI.DESCR,1 AS QTY, TO_CHAR(NVL(SUM(CALC_AMT) ,0)) RATE,NVL(SUM(CALC_AMT) ,0) AMT
+FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG,
+CI_PRICEITEM_L PI
+WHERE BSEG.BILL_ID = :BILL_ID
+and BSEG.BSEG_ID = CALC.BSEG_ID
+AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID
+AND CHG.PRICEITEM_CD=PI.PRICEITEM_CD
+AND NOT EXISTS (SELECT 1 FROM CI_BCHG_SQ WHERE BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID)
+GROUP BY PI.PRICEITEM_CD,PI.DESCR
+Ref Id	C01	referenceId	Populate CM-REFID characteristic’s value from the Price item, if available else Blank
+Quantity	551578	quantity	QTY from query above
+Rate	2.30	rate	RATE from query above
+Amount	1268629.40	amount	AMT from query above
+end of ancillaryCostEntry
+Total	1355670.33	invoiceTotal	Sum of amount across all Anciallry cost Entry lists
+End of  ancillaryDetails
+invoiceDetails
+chargeDescriptionDetails (List)
+Product Description	20054-Program Management Fee	name	From this query group all rows having same Priceitem_cd and use PRICEITEM_CD – DESCR
+
+From all rows for same Priceitem_cd, create the details below for rateDescriptionGroup
+
+SELECT PRICEITEM_CD,DESCR,CHAR_TYPE_CD,LVLENTITY,NOTES,QTY,RATE,AMT,END_DT,
+CASE 
+WHEN CHAR_TYPE_CD = :CARRIER THEN (SELECT BG_L1_IDENTIFIER_DESCR FROM CM_CAG_REF_DATA WHERE BG_L1_IDENTIFIER = LVLENTITY AND ROWNUM=1)
+WHEN CHAR_TYPE_CD = :ACCOUNTID THEN (SELECT BG_L2_IDENTIFIER_DESCR FROM CM_CAG_REF_DATA WHERE BG_L2_IDENTIFIER = LVLENTITY AND ROWNUM=1)
+WHEN CHAR_TYPE_CD = :GROUP1 THEN (SELECT BG_L3_IDENTIFIER_DESCR FROM CM_CAG_REF_DATA WHERE BG_L3_IDENTIFIER = LVLENTITY AND ROWNUM=1)
+ELSE ' '
+END AS NAME
+FROM(
+SELECT PI.PRICEITEM_CD,PI.DESCR,BCHAR.ADHOC_CHAR_VAL CARRIERLVLENTITY,TXN.UDF_CHAR_9 NOTES,NVL (SUM(SVC_QTY),0)QTY,LNCHAR.ADHOC_CHAR_VAL RATE,NVL(SUM(CALC_AMT) ,0) AMT,BSEG.END_DT
+FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG, CI_BILL_CHG_CHAR BCHAR,
+CI_BCHG_SQ SQ,CI_PRICEITEM_L PI,CI_BSEG_CL_CHAR LNCHAR,CI_TXN_DTL_PRITM PRITM, CI_TXN_DETAIL TXN
+WHERE BSEG.BILL_ID = :BILL_ID
+and BSEG.BSEG_ID = CALC.BSEG_ID
+AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID
+AND CHG.BILLABLE_CHG_ID = SQ.BILLABLE_CHG_ID
+AND CHG.PRICEITEM_CD=PI.PRICEITEM_CD
+AND CHG.BILLABLE_CHG_ID=BCHAR.BILLABLE_CHG_ID
+AND BCHAR.CHAR_TYPE_CD =:CARRIER (if level is Carrier)
+(or :ACCOUNTID if Level is Account or :GROUP if the level id Group)
+
+AND CHG.BILLABLE_CHG_ID =PRITM.BILLABLE_CHG_ID
+AND PRITM.TXN_DETAIL_ID =TXN.TXN_DETAIL_ID
+AND LNCHAR.BSEG_ID =BSEG.BSEG_ID
+AND LNCHAR.CHAR_TYPE_CD = 'RVALUECH'
+GROUP BY PI.PRICEITEM_CD,PI.DESCR,LNCHAR.ADHOC_CHAR_VAL,BCHAR.ADHOC_CHAR_VAL,TXN.UDF_CHAR_9,BSEG.END_DT
+UNION
+SELECT PI.PRICEITEM_CD,PI.DESCR,BCHAR.ADHOC_CHAR_VAL CARRIER LVLENTITY,TXN.UDF_CHAR_9 NOTES,
+1 AS QTY,TO_CHAR(NVL(SUM(CALC_AMT) ,0))RATE,NVL(SUM(CALC_AMT) ,0) AMT,BSEG.END_DT
+FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG, CI_BILL_CHG_CHAR BCHAR,
+CI_PRICEITEM_L PI,CI_TXN_DTL_PRITM PRITM, CI_TXN_DETAIL TXN
+WHERE BSEG.BILL_ID = :BILL_ID
+and BSEG.BSEG_ID = CALC.BSEG_ID
+AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID
+AND CHG.PRICEITEM_CD=PI.PRICEITEM_CD
+AND CHG.BILLABLE_CHG_ID=BCHAR.BILLABLE_CHG_ID
+AND BCHAR.CHAR_TYPE_CD =:CARRIER(if level is Carrier)
+(or :ACCOUNTID if Level is Account or :GROUP if the level id Group)
+AND CHG.BILLABLE_CHG_ID =PRITM.BILLABLE_CHG_ID
+AND PRITM.TXN_DETAIL_ID =TXN.TXN_DETAIL_ID
+AND NOT EXISTS (SELECT 1 FROM CI_BCHG_SQ WHERE BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID)
+GROUP BY PI.PRICEITEM_CD,PI.DESCR,BCHAR.ADHOC_CHAR_VAL,TXN.UDF_CHAR_9,BSEG.END_DT
+Ref Id	C01	referenceId	??TBD   Populate CM-REFID characteristic’s value from the Price item, if available else Blank
+rateDescriptionGroup
+rateDescription (List)    
+Carrier/Account/Group (Depending on the Level on the Invoice)		carrierIdName	Carrier  LVLENTITY from query above
+Notes		notes	Notes from query above
+Service Period	Feb-25	servicePeriod	END_DT from above query. Covert to MMM-YY format. 
+Quantity		quantity	QTY from query above
+Rate		rate	RATE from Query Above
+Amount		amount	AMT from query above
+End of rateDescription
+End of rateDescriptionGroup
+Total Quantity	55,178	totalItemQuantity	Sum of All QTY for the Rate Description Group
+Total Amount	1,268,629.40	totalItemAmount	Sum of All AMT for the Rate Description Group
+End of chargeDescriptionDetails
+End of invoiceDetails
+Remit To	Prime Therapeutics, P.O. Box 860466 Minneapolis, MN 55486-0466	remitAddress1 
+Group	Refer extendable lookup CM-MarketsExtLookup
+For “Remit To”
+Wire To	Wire & ACH Transfer Instructions:  U.S. Bank, N.A., 800 Nicolett Mall, Minneapolis, MN 55402
+ABA# 123000848, Account Name:  Prime Therapeutics LLC
+Beneficiary Account Number (Wire):  153910871687, Receiving Account Number (ACH):  15310871687
+Please Reference Invoice Number	remitAddress2 Group	Refer extendable lookup CM-MarketsExtLookup
+For “Wire To”
+Prime Contact Email	xxxxx@primetherapeutics.com	footer2	Refer extendable lookup CM-MarketsExtLookup
+For “Prime Contact Email”
+Processing Logic
+Same Invoice Extract batch that was developed for Claim Invoice extract can be used, to select all Bill Routing records that are not already extracted and the Extract algorithm will be triggered on the ANCIL Bill Route type.
+The Bill route type extract algorithm will contain the logic to create the Invoice in required format using mapping provided above
+File naming convention for Individual Invoice PDF –
+The logic to derive the file naming convention is consistent for both Emblem Health and Gold Coast.
+1.	Retrieve Parent Person ID
+o	Extract the Parent Person ID from the associated work unit.
+2.	Access File Naming Configuration
+o	Use the Parent Person Characteristic CM-COAID to identify the relevant extendable lookup name.
+o	If extendable lookup parent code is not found for given coalition id, then default to STRD (Standard) extendable lookup
+3.	Fetch Naming Format
+o	Query the identified extendable lookup to retrieve the value for "Electronic File Naming Format".
+o	Store this value in a string variable, e.g., fileNameElectronic.
+4.	Dynamic Placeholder Replacement Logic
+Based on the contents of fileNameElectronic, apply the following transformations:
+o	If fileNameElectronic contains <ClientID>
+	Retrieve the Carrier ID from the work unit.
+	Replace <ClientID> in fileNameElectronic with the Carrier ID.
+o	Else If fileNameElectronic contains <ENV> :
+	Retrieve the Environment value from algorithm parameter.
+	Replace <ENV> in fileNameElectronic with the actual environment string.
+o	Else If fileNameElectronic contains <Account#> :
+	Retrieve the BILL_LVL_3 from bill group
+	Replace <Account#> in fileNameElectronic with the actual account string.
+o	Else If fileNameElectronic contains <YYYYMMDDHHmmSS> :
+	Get the current system date and format it as YYYYMMDDHHmmSS.
+	Replace <YYYYMMDDHHmmSS> in fileNameElectronic with the formatted timestamp.
+o	Else If fileNameElectronic contains <YYYYMMDD>:
+	Get the current system date and format it as YYYYMMDD.
+	Replace <YYYYMMDD> in fileNameElectronic with the formatted date.
+5.	Final Output
+o	The resulting value of fileNameElectronic after all substitutions will be used as the final file name for the extract.
+6.	Folder path – Retrieve from extendable lookup – value for “OCI Folder Path”
+o	Add logic based on C1-CFS feature configuration value – Local Vs OCI
+
+4.2.3	Billing Invoice PDF generation – Medical Pharmacy
+Prime business team has shared the invoice layout for consolidated and individual invoices for Medical Pharmacy which are stored at the following location
+ORMB_Invoice_Mockups_20250718_To RIA.xlsx
+Corresponding XML File -  Medical_Pharmacy.xml
+The Labels can be hard-coded in the FOP template itself using the sample.
+Variable Name	Sample Value from PDF	XML Element	Mapping 
+Summary Page
+Logo Code	Prime Therapeutics	logoCd	Refer extendable lookup CM-MarketsExtLookup For Logo Code
+From Bil’s Account – Main Person- Get Parent Person. From Parent customer get the Industry characteristic and for this value check the logo code
+primeAddress
+Prime Address	Prime Therapeutics LLC
+2900 Ames Crossing Road, Suite 200
+Eagan, MN  55121
+www.primetherapeutics.com
+address1 thru
+address4
+and emailId	Refer extendable lookup CM-MarketsExtLookup For “Prime Address”
+billToInfo
+Bill To 
+Name	Emblem Health	address1	Bill Group’s Bill To characteristic, if available
+ELSE
+Client’s Entity Name (At Parent Customer)
+Bill To Address1 and 2	1001 BRINTON ROAD	address2	Address 1+ Address 2 for the Bill Group, if available. Else Address from Client
+Client’s Adress 1 and 2
+Bill To City State and Zip	PITTSBURGH,PA,15221	address3	City, State, Zip for the Bill Group, if available. Else Address from Client
+
+Client’s  City, State and Zip (Comma separated)
+Invoice Date	05/01/2025	invoiceDate	BILL_DT
+Billing Period	2/17/2025 - 2/23/2025	billingPeriod	SELECT MAX(START_DT) FROM CI_BSEG WHERE BILL_ID = :BILL_ID
++ ‘-‘
+SELECT MAX(END_DT) FROM CI_BSEG WHERE BILL_ID = :BILL_ID 
+Customer	10003	customerId	CLIENT_ID
+Invoice Number	1587139	invoiceNumber	BILL_ID
+Payment Due Date	05/08/2025	dueDate	DUE_DT
+Payment Terms	Net 30 days	paymentTerms	CM-NETRM characteristic  from Bill’s Account 
+PO Number	4700013587LN10	poNumber	Adhoc Characteristic value from Parent for characteristic type CMPONUMB
+serviceDetails
+serviceItem– list
+ITEM	33001- Medical Pharmacy Services	serviceCode -serviceDescription	From this query group all rows having same Priceitem_cd and use PRICEITEM_CD and DESCR
+
+From all rows for same Priceitem_cd, create the details below for carrierInfo group
+
+SELECT PI.PRICEITEM_CD,PI.DESCR,BCHAR.ADHOC_CHAR_VAL CARRIER,
+BSEG.END_DT,NVL (SUM(SVC_QTY),0)QTY,
+LNCHAR.ADHOC_CHAR_VAL RATE,NVL(SUM(CALC_AMT) ,0) AMT
+FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG,
+CI_BILL_CHG_CHAR BCHAR,CI_BCHG_SQ SQ,CI_PRICEITEM_L PI,CI_BSEG_CL_CHAR LNCHAR
+WHERE BSEG.BILL_ID = :BILL_ID
+and BSEG.BSEG_ID = CALC.BSEG_ID
+AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID
+AND CHG.BILLABLE_CHG_ID = SQ.BILLABLE_CHG_ID
+AND CHG.PRICEITEM_CD=PI.PRICEITEM_CD
+AND CHG.BILLABLE_CHG_ID=BCHAR.BILLABLE_CHG_ID
+AND BCHAR.CHAR_TYPE_CD =:CARRIER
+AND LNCHAR.BSEG_ID =BSEG.BSEG_ID
+AND LNCHAR.CHAR_TYPE_CD = 'RVALUECH'
+GROUP BY PI.PRICEITEM_CD,PI.DESCR,LNCHAR.ADHOC_CHAR_VAL,BCHAR.ADHOC_CHAR_VAL,BSEG.END_DT
+UNION
+SELECT PI.PRICEITEM_CD,PI.DESCR,BCHAR.ADHOC_CHAR_VAL CARRIER,
+BSEG.END_DT,1 AS QTY,
+TO_CHAR(NVL(SUM(CALC_AMT) ,0)) RATE,NVL(SUM(CALC_AMT) ,0) AMT
+FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG,
+CI_BILL_CHG_CHAR BCHAR,CI_PRICEITEM_L PI
+WHERE BSEG.BILL_ID = :BILL_ID
+and BSEG.BSEG_ID = CALC.BSEG_ID
+AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID
+AND CHG.PRICEITEM_CD=PI.PRICEITEM_CD
+AND CHG.BILLABLE_CHG_ID=BCHAR.BILLABLE_CHG_ID
+AND BCHAR.CHAR_TYPE_CD =:CARRIER
+AND NOT EXISTS (SELECT 1 FROM CI_BCHG_SQ WHERE BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID)
+GROUP BY PI.PRICEITEM_CD,PI.DESCR,BCHAR.ADHOC_CHAR_VAL,BSEG.END_DT
+
+carrierInfo
+carrierDetail-list
+Carrier	MP7819 - MP BCBS AL COMMERCIAL	carrierCode - carrierDescription	Carrier from above query  and corresponding Carrier Description from CM_CAG_REF_DATA table.
+Group all rows having same Carrier and then create list below by Service Period
+coverageInfo
+coverageDetails - list
+Service Period	Feb-25	servicePeriod	END_DT from above query. Covert to MMM-YY format. 
+Quantity	1,500,000	quantity	QTY from query above
+Rate	$0.40	rate	RATE from query above
+Amount	$600,000.00	amount	AMT from query above
+End of coverageDetails
+End of coverageInfo
+End of carrierDetails
+End of carrierInfo
+Item Total - Quantity	2,000,000	totalServiceQuantity	Sum of quantity for the Priceitem (across all Carriers and Coverage periods for the Priceitem)
+Item Total - Amount	756,535.00	totalServiceAmount	Sum of amount for the Priceitem (across all Carriers and Coverage periods for the Priceitem)
+End of  serviceItem
+End of serviceDetails
+Invoice Total	767,535.00	invoiceTptal	Sum of all totalServiceAmount
+Remit To	Prime Therapeutics, P.O. Box 860466 Minneapolis, MN 55486-0466	remitAddress1 
+Group	Refer extendable lookup CM-MarketsExtLookup
+For “Remit To”
+Wire To	Wire & ACH Transfer Instructions:  U.S. Bank, N.A., 800 Nicolett Mall, Minneapolis, MN 55402
+ABA# 123000848, Account Name:  Prime Therapeutics LLC
+Beneficiary Account Number (Wire):  153910871687, Receiving Account Number (ACH):  15310871687
+Please Reference Invoice Number	remitAddress2 Group	Refer extendable lookup CM-MarketsExtLookup
+For “Wire To”
+Prime Contact Email	xxxxx@primetherapeutics.com	footer2	Refer extendable lookup CM-MarketsExtLookup
+For “Prime Contact Email”
+
+Processing Logic
+Same Invoice Extract batch that was developed for Claim Invoice extract can be used, to select all Bill Routing records that are not already extracted and the Extract algorithm will be triggered on the MEDPH Bill Route type.
+The Bill route type extract algorithm will contain the logic to create the Invoice in required format using mapping provided above
+File naming convention for Individual Invoice PDF –
+The logic to derive the file naming convention is consistent for both Emblem Health and Gold Coast.
+1.	Retrieve Parent Person ID
+o	Extract the Parent Person ID from the associated work unit.
+2.	Access File Naming Configuration
+o	Use the Parent Person Characteristic CM-COAID to identify the relevant extendable lookup name.
+o	If extendable lookup parent code is not found for given coalition id, then default to STRD (Standard) extendable lookup
+3.	Fetch Naming Format
+o	Query the identified extendable lookup to retrieve the value for "Electronic File Naming Format".
+o	Store this value in a string variable, e.g., fileNameElectronic.
+4.	Dynamic Placeholder Replacement Logic
+Based on the contents of fileNameElectronic, apply the following transformations:
+o	If fileNameElectronic contains <ClientID>
+	Retrieve the Carrier ID from the work unit.
+	Replace <ClientID> in fileNameElectronic with the Carrier ID.
+o	Else If fileNameElectronic contains <ENV> :
+	Retrieve the Environment value from algorithm parameter.
+	Replace <ENV> in fileNameElectronic with the actual environment string.
+o	Else If fileNameElectronic contains <Account#> :
+	Retrieve the BILL_LVL_3 from bill group
+	Replace <Account#> in fileNameElectronic with the actual account string.
+o	Else If fileNameElectronic contains <YYYYMMDDHHmmSS> :
+	Get the current system date and format it as YYYYMMDDHHmmSS.
+	Replace <YYYYMMDDHHmmSS> in fileNameElectronic with the formatted timestamp.
+o	Else If fileNameElectronic contains <YYYYMMDD>:
+	Get the current system date and format it as YYYYMMDD.
+	Replace <YYYYMMDD> in fileNameElectronic with the formatted date.
+5.	Final Output
+o	The resulting value of fileNameElectronic after all substitutions will be used as the final file name for the extract.
+6.	Folder path – Retrieve from extendable lookup – value for “OCI Folder Path” 
+o	Add logic based on C1-CFS feature configuration value – Local Vs OCI
+
+
+
+
+
+
+
+
+4.3	  Client Billing Statement PDF generation
+4.3.1	Creating/Updating Statement Construct -
+To create new statement, construct on parent person.
+On Business object – Account
+Post-processing spot - CM-CTSTMTCST (new algorithm)
+Assumption – monitor batch - C1-UPLRQ running on 1 thread by bill group.
+Logic – 
+This logic should execute of add mode only (if(this.boAction.isAdd())) else exit.
+Check if Account Characteristic (C1INVTYP = ‘CLAIM’) Invoice type = ‘CLAIM’ else exit the algorithm
+By passing the account id in the query below, we can get the parent person id.
+Query - Select pp.per_id1 from ci_per_per pp, ci_acct_per ap where pp.per_id2 = ap.per_id and ap.acct_id=:accountId and pp.per_rel_type_cd= 'BILLING';
+If query doesn’t return, throw an error.
+
+Check if statement construct is already present for this parent person.
+ Query - SELECT * FROM CI_STM_WHERE PER_ID = ‘parentPersonId’;
+If query return zero rows – then its a New Statement Construct scenario-
+Using BO - C1-StatementConstruct, we can create a new statement construct for this parent person.
+
+
+
+
+Populate below fields –
+Person Id – Parent Person Id
+Status – Active
+Address Source – Person
+Statement Cycle – Weekly Monday
+Statement Route Type – Statement PDF
+Number of Copies – 1
+Statement Format – Detail
+Print Description – Statement for Parent Person
+ 
+ 
+
+
+And list of bill group accounts needs to be added in “Details” section –
+Construct Detail Type – Account
+Contract/Account – Account id of bill group
+Statement Print Description – Statement for Bill group - <Stamp the bill group id – Primary Person identifier of Bill group person>
+Print Order – 1
+Start Date – From inbound message – Start Date.
+ 
+ 
+If query returns more than zero rows – Then its Update Existing statement construct scenario -
+In case of adding a new bill group to the existing statement construct of the parent person, we need to add a new bill group’s account id in “Details” section.
+No other change is required.
+ 
+ 
+
+
+4.3.2	Statement Route Type –
+As part of this requirement, we had created a new Statement Route type as highlighted below–
+  
+A new batch code and Extract algorithm would be developed.
+No need to create this batch
+Batch control- STMPRD base batch – will call this stmt route type – 
+Based on stmt route type and statement cycle.
+New Batch Control – to be attached on Statement Route Type – CM-SPDF –
+New Batch Control – CMSTMEXT
+This new batch will select all statements for given batch code and batch number.
+Query –
+SELECT STM_ID FROM CI_STM WHERE BATCH_CD = :batchCode AND BATCH_NBR = :batchNbr and stm_stat_flg = 'PN';
+For each statement Id, we need to call new extract algorithm (CM-STEX-PDF) attached on Statement Route Type – CM-SPDF.
+
+
+Extract Algorithm - CM-STEX-PDF - Extract data to create statement PDF
+Below is logic for Extract Algorithm based on Prime statement requirements –
+Algorithm processing logic –
+Input for algorithm is Statement ID - CI_STM.STM_ID.
+Using this Statement Id, fetch the parent person linked to this statement construct
+Query –
+SELECT STMCNST.PER_ID AS PARENT_PERSON
+FROM CI_STM STM, CI_STM_CNST STMCNST 
+WHERE STM.STM_CNST_ID = STMCNST.STM_CNST_ID
+AND STM.STM_ID = :stmId;
+To find the level of billing for this parent person, use the below query -
+SELECT DISTINCT billing_group_id, 
+CASE WHEN ( TRIM(bill_lvl_2) IS NOT NULL AND bill_lvl_3 IS NULL AND bill_lvl_4 IS NULL ) 
+THEN 'CARRIER' 
+WHEN ( TRIM(bill_lvl_2) IS NOT NULL AND bill_lvl_3 IS NOT NULL AND bill_lvl_4 IS NULL ) 
+THEN 'ACCOUNT' 
+WHEN ( TRIM(bill_lvl_2) IS NOT NULL AND bill_lvl_3 IS NOT NULL AND bill_lvl_4 IS NOT NULL ) 
+THEN 'GROUP' END AS lvl 
+FROM c1_bill_lvl 
+WHERE rownum=1 and  bo_status_cd = 'ACTIVE' AND bill_lvl_1 = 'CLAIM' AND parent_per_id =:parent_Person;
+
+Based on where the billing is happening, statement consolidation can happen at different levels.
+Possible combinations -
+Billing Level	Account level	Carrier level	Parent (Client) level
+Group level	Yes	Yes	No
+Account Level	No	Yes	No
+Carrier Level	No	No	Yes
+ 
+Along with consolidated statements, we also need to include individual PDF’s
+Possible combinations -
+Billing Level	Individual PDF’s
+Group level	Group Level PDF’s
+Account Level	Account Level PDF’s
+Carrier Level	Carrier Level PDF’s
+
+
+To construct consolidated page, we can use below query –
+If bill level = ‘GROUP’ –
+select * from 
+(SELECT 'INDIVIDUAL' AS CONSOLIDATION, bill_lvl_1, bill_lvl_2, bill_lvl_3, bill_lvl_4,  count(1)  
+FROM C1_BILL_LVL where bill_lvl_1 = 'CLAIM' and parent_per_id = '3080257458'  
+group by bill_lvl_1, bill_lvl_2, bill_lvl_3, bill_lvl_4
+UNION 
+-- acct level 
+SELECT 'CONSOLIDATED - ALL GROUPS' AS CONSOLIDATION, bill_lvl_1, bill_lvl_2, bill_lvl_3, '', count(1)  
+FROM C1_BILL_LVL where bill_lvl_1 = 'CLAIM' and parent_per_id = '3080257458'   
+group by bill_lvl_1, bill_lvl_2, bill_lvl_3 
+UNION 
+-- carrier level 
+SELECT 'CONSOLIDATED - ALL ACCOUNTS AND GROUPS' AS CONSOLIDATION, bill_lvl_1, bill_lvl_2, '','', count(1)  
+FROM C1_BILL_LVL where bill_lvl_1 = 'CLAIM' and parent_per_id = '3080257458'  
+group by bill_lvl_1, bill_lvl_2)
+order by bill_lvl_2, bill_lvl_3, bill_lvl_4;
+
+Query output –
+ 
+In above example, we will have
+4 individual bills at group level (Row # 1,2,4 and 6) - get from f1_outmsg table
+2 consolidated at account level (Row # 3 and 6) - need to build
+1 consolidated at carrier level (Row # 7) - need to build
+The Order of pages in Statement would be –
+7, 6, 5, 4, 3, 2, 1
+
+
+
+
+
+
+
+
+If bill level = ‘ACCOUNT’ –
+select * from 
+(
+-- acct level 
+SELECT 'INDIVIDUAL' AS CONSOLIDATION, bill_lvl_1, bill_lvl_2, bill_lvl_3, '', count(1)  
+FROM C1_BILL_LVL where bill_lvl_1 = 'CLAIM' and parent_per_id = '5827036433'   
+group by bill_lvl_1, bill_lvl_2, bill_lvl_3 
+UNION 
+-- carrier level 
+SELECT 'CONSOLIDATED - ALL ACCOUNTS AND GROUPS' AS CONSOLIDATION, bill_lvl_1, bill_lvl_2, '','', count(1)  
+FROM C1_BILL_LVL where bill_lvl_1 = 'CLAIM' and parent_per_id = '5827036433'  
+group by bill_lvl_1, bill_lvl_2)
+order by bill_lvl_2, bill_lvl_3;
+Query output –
+ 
+In this case,
+We will generate
+2 individual account level bills (Row # 1 and 3) – get from f1_outmsg table
+2 consolidated carrier level (Row # 2 and 4) – need to build
+Order of pages in Statement would be –
+4, 3, 2,1
+
+We only need to create xml for consolidated pages.
+Individual level PDF can be retrieved from below table –
+Query -
+Select XML_SOURCE from f1_outmsg where OUTMSG_ID = :billID
+
+
+
+
+
+
+Building Consolidated Pages
+To get quantity and different cost –
+In this query, we are passing all the bills which qualify for consolidation.
+SELECT
+LN.DESCR_ON_BILL, BCHAR.ADHOC_CHAR_VAL CHANNEL--, SUM(LN.CALC_AMT) AS COST
+FROM CI_BILL BILL, CI_BSEG_CALC_LN LN, CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG_CHAR BCHAR 
+WHERE 
+BILL.BILL_ID = BSEG.BILL_ID AND 
+BSEG.BILL_ID in (
+select distinct dtl.bill_id from CI_STM STM, CI_STM_CNST const, ci_stm_dtl dtl, ci_bill bill, ci_acct_per aper, ci_per_per per , C1_BILL_LVL BL
+where STM.STM_CNST_ID = const.STM_CNST_ID 
+and stm.stm_id = dtl.stm_id
+and dtl.bill_id = bill.bill_id
+and aper.acct_id = bill.acct_id
+and aper.per_id = per.per_id2
+and BL.bill_lvl_1 = 'CLAIM' 
+and BL.parent_per_id = const.per_id 
+and bl.billing_group_id = aper.per_id
+and const.per_id = '6334202423'
+and bl.bill_lvl_2 = : bill_lvl_2  			--'MKC0146                       '
+and BL.bill_lvl_3 = : bill_lvl_3  			--'MK00000149                    ' – Based on level of consolidation
+) 
+AND BSEG.BSEG_ID = CALC.BSEG_ID 
+AND CALC.BSEG_ID = LN.BSEG_ID 
+AND CALC.BILLABLE_CHG_ID = BCHAR.BILLABLE_CHG_ID
+AND TRIM(BCHAR.CHAR_TYPE_CD) = 'CM-CLMC'
+AND TRIM(BCHAR.ADHOC_CHAR_VAL) = 'Retail'-- :CHANNEL
+--AND BCHAR.CHAR_TYPE_CD = :channel 
+GROUP BY LN.DESCR_ON_BILL, BCHAR.ADHOC_CHAR_VAL 
+ORDER BY LN.DESCR_ON_BILL, BCHAR.ADHOC_CHAR_VAL
+
+We need to add below 2 new xml tags in statement pages –
+
+<consolidated> - To store the consolidation level – get this value from above query for group level.
+<pageNo> - To store the page number. – get this value from above query for group level.
+
+
+
+
+
+
+
+
+Variable Name	Sample Value from PDF	XML Element	Mapping 
+Logo Code	Prime Therapeutics	logoCd	Refer extendable lookup CM-MarketsExtLookup
+For Logo Code
+From Bil’s Account – Main Person- Get Parent Person. From Parent customer get the Industry characteristic and for this value check the logo code
+Prime Address	Prime Therapeutics LLC
+2900 Ames Crossing Road, Suite 200
+Eagan, MN  55121
+www.primetherapeutics.com
+primeAdress Group	Refer extendable lookup CM-MarketsExtLookup, using Industry of Parent customer as the extendable lookup value
+For “Prime Address”
+Prime Email	www.primetherapeutics.com
+emailId	Refer extendable lookup CM-MarketsExtLookup, using Industry of Parent customer as the extendable lookup value
+
+Bill To 
+Name	Emblem Health	address1	Client’s Entity Name (At Parent Customer)
+Bill To
+Carrier/Account/Group	ABC123 Account	address2	Information can be fetched from the bill levels associated with billing group.
+
+Get the Bill Group id from Bill’s Account’s Main person
+
+SELECT DISTINCT LVL ||':'||
+CASE WHEN LVL='CARRIER' THEN (SELECT DISTINCT BILL_LVL_2 FROM C1_BILL_LVL WHERE BILL_LVL_1= 'CLAIM' AND BILLING_GROUP_ID = :BGID)
+WHEN LVL='ACCOUNT' THEN (SELECT DISTINCT BILL_LVL_3 FROM C1_BILL_LVL WHERE BILL_LVL_1= 'CLAIM' AND BILLING_GROUP_ID = :BGID)
+ELSE (SELECT DISTINCT BILL_LVL_4 FROM C1_BILL_LVL WHERE BILL_LVL_1= 'CLAIM' AND BILLING_GROUP_ID = :BGID)
+END AS VAL FROM (
+SELECT BILLING_GROUP_ID,
+CASE WHEN ( BO_STATUS_CD ='ACTIVE' AND BILL_LVL_1 ='CLAIM' 
+AND TRIM(BILL_LVL_2) IS NOT NULL AND BILL_LVL_3 IS NULL AND BILL_LVL_4 IS NULL 
+) THEN 'CARRIER'
+WHEN ( BO_STATUS_CD ='ACTIVE' AND BILL_LVL_1 ='CLAIM' 
+AND TRIM(BILL_LVL_2) IS NOT NULL AND BILL_LVL_3 IS NOT NULL AND BILL_LVL_4 IS NULL 
+) THEN 'ACCOUNT'
+ELSE 'GROUP'
+END AS LVL
+FROM C1_BILL_LVL WHERE BILLING_GROUP_ID = :BGID)
+Bill To Address1 and 2	Division XYX Street	address3	Client’s Adress 1 +’,’+ Client’s  Adress 2
+Bill To City, State and Zip	PITTSBURGH, PA,15221	address4	Client’s city +’,’+ Client’s  State + ‘,’ + Client’s Zip
+			
+Invoice Date	05/01/2025	invoiceDate	BILL_DT
+Billing Period	2/17/2025 - 2/23/2025	billingPeriod	BILL_PERIOD SELECT MAX(START_DT) FROM CI_BSEG WHERE BILL_ID = :BILL_ID
++ ‘-‘
+SELECT MAX(END_DT) FROM CI_BSEG WHERE BILL_ID = :BILL_ID
+Customer Id	10003	customerId	CLIENT_ID (Parent Customer’s Primary identifier)
+Invoice Number	1587139	InvoiceNumber	BILL_ID
+Payment Terms	Net 3 days	paymentTerms	CM-NETRM characteristic on Bill’s Account
+Payment Due Date	05/08/2025	dueDate	DUE_DT
+PO Number	4700013587LN10	PONumber	Adhoc Characteristic value from Parent for characteristic type CMPONUMB
+claimDetails
+totalClaimsQuantity
+Quantity by Channel	200		SELECT BCHAR.ADHOC_CHAR_VAL CHANNEL,SUM(DETAIL.TXN_VOL) QUANTITY
+FROM CI_TXN_DETAIL DETAIL,CI_TXN_DTL_PRITM PRITM,CI_BSEG BSEG, CI_BSEG_CALC CALC,CI_BILL_CHG_CHAR BCHAR,CI_BILL_CHG CHG,
+CI_PRICEITEM_CHAR PC
+WHERE DETAIL.TXN_DETAIL_ID = PRITM.TXN_DETAIL_ID
+AND BSEG.BILL_ID = :BILL_ID
+AND BSEG.BSEG_ID =CALC.BSEG_ID
+AND PRITM.BILLABLE_CHG_ID = CALC.BILLABLE_CHG_ID
+AND DETAIL.BO_STATUS_CD = 'COMP'
+AND CALC.BILLABLE_CHG_ID = BCHAR.BILLABLE_CHG_ID
+AND BCHAR.CHAR_TYPE_CD = 'CM-CLMC'
+AND BCHAR.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID
+AND CHG.PRICEITEM_CD = PC.PRICEITEM_CD
+AND PC.CHAR_TYPE_CD = 'CMPRDCAT'
+AND PC.CHAR_VAL ='COST'
+GROUP BY BCHAR.ADHOC_CHAR_VAL
+Ingredient Cost by Channel	$100.00	description
+retail
+mailOrder
+memberSubmitted
+
+
+	SELECT SUBSTR(LN.DESCR_ON_BILL,2,80)LNDESCR, BCHAR.ADHOC_CHAR_VAL CHANNEL,SUM(LN.CALC_AMT)
+FROM CI_BSEG_CALC_LN LN, CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG_CHAR BCHAR
+WHERE BSEG.BILL_ID = :BILL_ID
+AND BSEG.BSEG_ID = CALC.BSEG_ID
+AND CALC.BSEG_ID = LN.BSEG_ID
+AND CALC.BILLABLE_CHG_ID = BCHAR.BILLABLE_CHG_ID
+AND TRIM(BCHAR.CHAR_TYPE_CD) = :CHANNEL
+AND SUBSTR(LN.DESCR_ON_BILL,1,1) <>'Z'
+GROUP BY LN.DESCR_ON_BILL, BCHAR.ADHOC_CHAR_VAL
+ORDER BY LN.DESCR_ON_BILL, BCHAR.ADHOC_CHAR_VAL,LN.DESCR_ON_BILL
+Total Billed	$565.00		Sum of all channel amounts for every unique Description on Bill
+End of Claim Entry
+Dispensing Fee	$200.00		See Query above to get amounts by Channel and Claim line and create Claim entry group
+Tax	$300.00		See Query above to get amounts by Channel and Claim line and create Claim entry group
+Member Responsibility	$-50.00		See Query above to get amounts by Channel and Claim line and create Claim entry group
+Other Payer Responsibility	$-25.00		See Query above to get amounts by Channel and Claim line and create Claim entry group
+Admin Fee	$40.00		See Query above to get amounts by Channel and Claim line and create Claim entry group
+End of Claim Cost
+totalClaimsAmount
+Retail		retail	Sum across all claim entries for Retail Channel
+Mail Order		mailOrder	Sum across all claim entries for Mail Order Channel
+Specialty		speciality	Sum across all claim entries for Speciality Channel
+Member Submitted		memberSubmitted	Sum across all claim entries for Member Submitted Channel
+Total		totalBilled	Sum of all amounts above across channels
+End of  totalClaimsAmount
+Remit To	Prime Therapeutics, P.O. Box 860466 Minneapolis, MN 55486-0466		Refer extendable lookup CM-MarketsExtLookup For “Remit To”
+Wire To	Wire & ACH Transfer Instructions:  U.S. Bank, N.A., 800 Nicolett Mall, Minneapolis, MN 55402
+ABA# 123000848, Account Name:  Prime Therapeutics LLC
+Beneficiary Account Number (Wire):  153910871687, Receiving Account Number (ACH):  15310871687
+Please Reference Invoice Number		Refer extendable lookup CM-MarketsExtLookup For “Wire To”
+Prime Contact Email	xxxxx@primetherapeutics.com		Refer extendable lookup CM-MarketsExtLookup For “Prime Contact Email”
+4.4	Client Billing Invoice Supplemental file generation
+4.4.1	Configuration 1 – Invoice Supplemental File Characteristic
+Added a new characteristic - CM-INSUP (Invoice Supplemental File) on Person – 
+This characteristic would be added manual by users on Parent Person characteristic.
+This characteristic will drive the logic, which supplemental files need to be created.
+Possible combinations –
+CM-INSUP is not set on person – Both invoice supplemental file needs to be created.
+CM-INSUP = BOTH, Both the invoice supplemental files need to be created.
+CM-INSUP = ELECTRONIC, then only Electronic supplemental file needs to be created.
+CM-INSUP = PRESCRIPTION, then only Prescription Supplemental file needs to be created
+CM-INSUP = NONE, No invoice supplemental file needs to be created.
+
+ 
+4.4.2	Configuration 2 – File naming/store Extendable Lookup
+To manage varying file naming conventions specific to each client, we will implement an extendable lookup configuration. 
+For clients whose file names follow a standard pattern, a common feature configuration will be used to store the generic naming conventions. This extendable lookup configuration will be introduced in future phases of implementation. 
+Folder creation at OCI and DIH AWS – Manual as part of each client onboarding. If it’s standard, no additional folder needs to be created.
+As part of the current scope, we will define two initial extendable lookup configurations.
+Extendable Lookup for EH (Emblem Health) –
+Parent Code	EMBH
+Parent Name	Emblem Health
+OCI Folder Path - Claims	OCI EH Claims bucket – TBD – Reporting Path
+Invoice PDF File Naming Format (Claims)	EH_PRIME_IN_<LOB>_<ClientID>_FIN_<Account#>_XW01_<ENV>_<YYYYMMDDHHmmSS>.pdf
+Electronic File Naming Format (Claims)	NA
+Prescription File Naming Format (Claims)	EH_PRIME_IN_<LOB>_<ClientID>_FIN_ERXFILE_XW01_<ENV>_<YYYYMMDDHHmmSS>.txt
+Executive File Naming Format
+(Claims)	EH_PRIME_IN_COMM_MED_FIN_GRPSUMM_XW01_<ENV>_<YYYYMMDDHHmmSS>.xlsx
+Statement PDF File Naming Format	
+Executive File – Group by Summary Naming Format (Ancillary)	EH_PRIME_IN_ALL_GRPSUMM_XM01_<ENV>_<YYYYMMDDHHmmSS>.xlsx
+Invoice PDF File Naming Format (Ancillary / Admin)	EH_PRIME_IN_<LOB>_<ClientID>_ADM_<Account#>_XM01_<ENV>_<YYYYMMDDHHmmSS>.pdf
+Ancillary / Admin Supplemental File (outside of ORMB)	EH_PRIME_IN_<LOB>_ADMSUPP_XM01_<ENV>_<YYYYMMDDHHmmSS>.xlsx
+
+Extendable Lookup for GCST (Gold Coast) –
+Parent Code	GCST
+Parent Name	Gold Coast
+OCI Folder Path	OCI Gold Coast bucket - TBD
+Invoice PDF File Naming Format (Claims)	<YYYYMMDD>_<ClientID>_<ENV>_Invoicce.pdf
+Electronic File Naming Format (Claims)	<ClientID>_Electronic_File_<ENV>_<YYYYMMDD>.xls
+Prescription File Naming Format (Claims)	<ClientID>_Electronic_Prescription_File_<ENV>_<YYYYMMDD>.txt
+Executive File – Group by Summary Naming Format (Claims)	<YYYYMMDD>_<ClientID>_<ENV>_DATA.xlsxs
+Executive File – Group by Summary Naming Format (Ancillary)	<ClientID>_ADM_GRPSUMM_<YYYYMMDD>.xlxs
+Invoice Statement PDF File Naming Format (Ancillary / Admin)	<ClientID>_ADM _INVOICE_<YYYYMMDD>.pdf
+Ancillary / Admin Supplemental File (outside of ORMB)	<ClientID>_ADM _SUPP _<YYYYMMDD>.xlxs
+
+Extendable Lookup for STRD (Standard) –
+Parent Code	STRD
+Parent Name	Standard
+OCI Folder Path	OCI Gold Coast bucket - TBD
+Invoice PDF File Naming Format (Claims)	<YYYYMMDD>_<ClientID>_<Account#>_GROUPINVOICE_<ENV>_<YYYYMMDDHHmmss>.pdf
+Electronic File Naming Format (Claims)	<YYYYMMDD>_<ClientId>_DATA_<YYYYMMDDHHmmss>.xlsx
+Prescription File Naming Format (Claims)	<YYYYMMDD>_<ClientId>_ELECTRONICPRESCRIPTION_FILE_DETAIL_<YYYYMMDDHHmmss>.txt
+Executive File Naming Format (Claims)	<YYYYMMDD>_<ClientId>_INVOICE_SUMMARY_<YYYYMMDDHHmmss>.xlsx
+Statement PDF File Naming Format	
+Executive File – Group by Summary Naming Format (Ancillary)	<ClientID>_ADM_GRPSUMM_<YYYYMMDD>.xlxs
+Invoice PDF File Naming Format (Ancillary / Admin)	<ClientID>_ADM _INVOICE_<YYYYMMDD>.pdf
+Ancillary / Admin Supplemental File
+(outside of ORMB)	<ClientID>_ADM _SUPP _<YYYYMMDD>.xlxs
+
+
+
+
+
+4.4.2.1	Extendable Lookup – BO
+File naming convention Extendable Lookup BO
+Overview
+This extendable lookup holds attributes for the Invoice/supplemental files naming convention and their OCI and DIH location specific to a client requirement. 
+Business Object	CM-FileNamingExtLookup
+Description	File Naming Convention for Invoice/Supplemental File
+Detailed Description	This business object stores the file naming conventions for invoice/supplemental file and their OCI/DIH location specific to a client requirement.
+Maintenance Object	Extendable Lookup MO
+Options	Option Type	Sequence	Option Value
+	Portal Navigation Option	10	Extendable Lookup Tab Menu
+Schema	•	Parent Code – Characteristic Type - CM-COAID – Adhoc Char Values
+Specific elements for Default Currencies (map to Business Object Data Area)
+•	Parent Name – Free text - Allow user to give complete name for parent code
+•	OCI Folder Path – Allow user to provide OCI folder path
+Note - Characteristic type CMDIFFILE will store the different File naming format.
+•	Invoice PDF File Naming Format – Allow user to provide invoice PDF file naming format.
+•	Electronic File Naming Format – Allow user to provide Electronic Supplemental file naming format.
+•	Prescription File Naming Format – Allow user to provide Prescription Supplemental file naming format.
+•	Executive File Naming Format – Allow user to provide Executive (Summary by Group) report file naming format.
+•	Statement PDF File Naming Format – Allow user to provide Statement PDF’s
+
+4.4.3	Configuration 3 – File Naming Convention Parent Characteristic
+To link above extendable lookup with Parent Person, we will be reusing parent person characteristic - CM-COAID (Coalition Id) to store extendable lookup parent code.
+Existing Person characteristic – CM-COAID
+Possible values – These values should get populated as part of Parent person load. (User manual upload)
+EMBH
+	Emblem Health
+GCST	Gold Coast
+STRD	Standard
+
+
+4.4.4	Configuration 4 – Characteristic to store different file names
+In extendable lookup to select different files to have their file naming conventions defined. This characteristic will store the different files
+New Characteristic – CMDIFFILE
+Entity – Extendable lookup
+
+
+CHAR_VAL	DESCR
+INVPDF	Invoice PDF File Naming Format
+ELECT	Electronic File Naming Format
+PRESC	Prescription File Naming Format
+EXECU	Executive File Naming Format
+STMTP	Statement PDF File Naming Format
+
+4.4.4.1	Identifying Person to receive All Supplemental File 
+To get a list of all invoices created and those invoices which should be considered for supplemental file generation.
+Algorithm Spot -
+On Customer class -
+A new Post Bill completion Algorithm – CM-SUPFILE (Identify parent person for supplemental file generation)
+Algo Parm 1 – Algo Name - CM-SUPFILE
+Algorithm Parameters -
+Parm 1 – Person Supplemental File Char - CM-INSUP
+Parm 2 - Electronic Supplemental File - ELECTRONIC
+Parm 3 – Prescription Supplemental File – PRESCRIPTION
+Parm 4 – Executive Code - EXECUTIVE
+
+Processing Logic -
+For bill id, get the parent person -
+Query -
+SELECT PP.PER_ID1 AS PARENT_PER 
+FROM CI_PER_PER PP 
+JOIN CI_PER PRN ON PP.PER_ID2 = PRN.PER_ID 
+JOIN CI_ACCT_PER APER ON PRN.PER_ID = APER.PER_ID 
+JOIN CI_BILL B ON APER.ACCT_ID = B.ACCT_ID 
+WHERE PP.PER_REL_TYPE_CD = 'BILLING' 
+AND PRN.PER_OR_BUS_FLG = 'BG' 
+AND B.BILL_ID = :billd;
+
+From bill id, get account id.
+Check if Account Characteristic (C1INVTYP = ‘CLAIM) Invoice type = CLAIM
+Then below logic-
+Retrieve Person Characteristic on Parent Person - CM-INSUP (Algorithm Param 1)
+Based on this characteristic, we need to insert rows in F1_GEN_PROC table for each bill id.
+If CM-INSUP is not populated, both the supplemental files need to be created – 2 rows for same Parent Person Id and bill id and different PK_VALUE3 – Algorithm parm 2 (ELECTRONIC) and 3 (PRESCRIPTION).
+If CM-INSUP is BOTH, then both the supplemental files need to be created – 2 rows for same parent person id and bill id and different PK_VALUE3 – Algorithm parm 2 (ELECTRONIC) and 3 (PRESCRIPTION).
+If CM-INSUP = (ELECTRONIC) OR (PRESCRIPTION), then only 1 supplemental file need to be created – 1 row for parent person id and bill id with PK_VALUE3 = value of CM-INSUP
+If CM-INSUP = ‘NONE’, don’t insert row
+Supplemental files will be generated by a new custom batch's (CM-SUFEL and CM-SUFPR). For this new batch, to get all bills for their parent person id and supplemental files to generate.
+In table - F1_GEN_PROC, we need to insert following details –
+4.4.4.1.1	Electronic/Prescription Supplemental File – Identification Inserts
+F1_GEN_PROC Field	Map To
+GEN_PROC_ID 	Define a new sequence for GEN_PROC_ID 
+MAINT_OBJ_CD	‘SUPPL-CLAIM’
+PK_VALUE1   	Store the Parent Person Id
+PK_VALUE2   	Bill Id
+PK_VALUE3   	Value of Parent Person Char - CM-INSUP
+ELECTRONIC
+PRESCRIPTION
+PK_VALUE4   	Status -
+ When inserting - PENDING
+ After Supplemental file generated, will be updated to - COMPLETED
+PK_VALUE5   	CARRIER (hard code)
+BATCH_CD    	CASE where ELECTRONIC 
+ Then CM-SUFEL - New batch to generate Electronic supp File
+When PRESCRIPTION then CM-SUFPR – New batch code to generate Prescription supp file
+BATCH_NBR   	1
+CRE_DTTM    	SYSDATE
+VERSION     	1
+
+4.4.4.1.2	Executive report – Identification inserts
+Below insert is for entering parent person id and Bill id for generating executive report (Section - Executive Report (Summary by Group Report))
+For each combination of parent person and bill id, we need to insert into table - F1_GEN_PROC, following details -
+F1_GEN_PROC Field	Map To
+GEN_PROC_ID 	Define a new sequence for GEN_PROC_ID 
+MAINT_OBJ_CD	‘CLAIM-EXEC’
+PK_VALUE1   	Store the Parent Person Id
+PK_VALUE2   	Bill Id
+PK_VALUE3   	Algo Parm 5 - EXECUTIVE
+PK_VALUE4   	Status -
+ When inserting - PENDING
+ After Supplemental file generated, will be updated to - COMPLETED
+PK_VALUE5   	 ‘ ‘
+BATCH_CD    	CM-EXECR - New batch to generate Claim Executive report
+BATCH_NBR   	1
+CRE_DTTM    	SYSDATE
+VERSION     	1
+
+4.4.4.1.3	Claim Return Extract (Client Billing) – Identification inserts
+For each client billing, we need to make entry in F1_GEN_PROC table.
+F1_GEN_PROC Field	Map To
+GEN_PROC_ID 	Define a new sequence for GEN_PROC_ID 
+MAINT_OBJ_CD	‘F1-GENPROC’
+PK_VALUE1   	Store the PARENT_PER
+PK_VALUE2   	BILL_ID
+PK_VALUE3   	Status -
+ When inserting - PENDING
+ After ancillary feed generated, will be updated to - COMPLETED
+PK_VALUE4   	BS (To indicate Bill segment is freeze or cancel)
+PK_VALUE5   	 ‘ ‘
+BATCH_CD    	CM-EXCLRT – ORMB to GCP Claim Return Extract (Client Billing).
+BATCH_NBR   	1
+CRE_DTTM    	SYSDATE
+VERSION     	1
+
+
+
+End of claim bill processing.
+
+
+
+4.4.4.1.4	For Ancillary and Medical Pharmacy Invoices Identification -
+Check if Account Characteristic (C1INVTYP = ‘ANCIL’) Invoice type = Ancillary
+For each parent person id and bill id, insert into table - F1_GEN_PROC, we need to insert following details -
+F1_GEN_PROC Field	Map To
+GEN_PROC_ID 	Define a new sequence for GEN_PROC_ID 
+MAINT_OBJ_CD	‘NON-CLM-EXEC’
+PK_VALUE1   	Store the PARENT_PER
+PK_VALUE2   	BILL_ID
+PK_VALUE3   	Status -
+ When inserting - PENDING
+ After Supplemental file generated, will be updated to - COMPLETED
+PK_VALUE4   	
+PK_VALUE5   	 ‘ ‘
+BATCH_CD    	CM- EXECR
+EXEAR - New batch to generate Ancillary Executive report
+BATCH_NBR   	1
+CRE_DTTM    	SYSDATE
+VERSION     	1
+
+Below entry is for generating Ancillary feed (ORMB to GCP) extract.
+
+In the Scenario below, we will be sending 2 entries for same transaction id, #2 and #3.
+No extra logic required.
+1.	New Ancillary bill created based on GCP Ancillary transaction.
+2.	User decided to Cancel this new bill
+3.	And then user re-generated the bill.
+	
+
+F1_GEN_PROC Field	Map To
+GEN_PROC_ID 	Define a new sequence for GEN_PROC_ID 
+MAINT_OBJ_CD	‘F1-GENPROC’
+PK_VALUE1   	Store the PARENT_PER
+PK_VALUE2   	BILL_ID
+PK_VALUE3   	Status -
+ When inserting - PENDING
+ After ancillary feed generated, will be updated to - COMPLETED
+PK_VALUE4   	BS (To indicate Bill segment is freeze or cancel)
+PK_VALUE5   	 ‘ ‘
+BATCH_CD    	CM-EXANC - New batch to generate Ancillary extract – ORMB to GCP.
+BATCH_NBR   	1
+CRE_DTTM    	SYSDATE
+VERSION     	1
+4.4.4.1.5	
+
+4.4.4.2	Cancel Bill Algorithm for Cancel Bill Scenarios
+As part of cancellation of bill, entry should be sent in ORMB to GCP Ancillary extract.
+To achieve this requirement, a new algorithm needs to be created on Customer class on Division – CAG Billing only (CBILCC)
+
+Algorithm Type	CM-CNLBILL
+Description	Make entry in F1_GEN_PROC for cancel bill
+Detailed Description	This Algorithm will make entry in F1_GEN_PROC table for cancelled bills
+Algorithm Entity	Customer Class – Cancel Bill
+
+4.4.4.2.1	Soft Parameters
+Sequence	Description	Value	Required
+			
+4.4.4.2.2	Processing Logic 
+1.	For each cancel bill, get the account id.
+2.	Using Account id, retrieve the “Invoice Type” Characteristic
+a.	It can be either ANCIL or CLAIM
+Query –
+select char_val as invoice_type 
+from ci_acct_char 
+where acct_id = :accountId and char_type_cd = :acctInvType;
+
+3.	If Invoice Type is ANCIL, Then 
+4.	Make the entry in  F1-GEN_PROC table for ORMB to GCP Ancillary Extract.
+
+F1_GEN_PROC Field	Map To
+GEN_PROC_ID 	Define a new sequence for GEN_PROC_ID 
+MAINT_OBJ_CD	‘F1-GENPROC’
+PK_VALUE1   	
+PK_VALUE2   	BILL_ID
+PK_VALUE3   	Status -
+ When inserting - PENDING
+ After ancillary feed generated, will be updated to – COMPLETED
+PK_VALUE4   	BX (To indicate Bill segment is freeze or cancel)
+PK_VALUE5   	 ‘ ‘
+BATCH_CD    	CM-EXANC - New batch to generate Ancillary extract – ORMB to GCP.
+BATCH_NBR   	1
+CRE_DTTM    	SYSDATE
+VERSION     	1
+
+5.	If Invoice Type is CLAIM, Then 
+6.	Make the entry in  F1-GEN_PROC table for ORMB to GCP Claim Return Extract (Client Billing).
+
+F1_GEN_PROC Field	Map To
+GEN_PROC_ID 	Define a new sequence for GEN_PROC_ID 
+MAINT_OBJ_CD	‘F1-GENPROC’
+PK_VALUE1   	Store the PARENT_PER
+PK_VALUE2   	BILL_ID
+PK_VALUE3   	Status -
+ When inserting - PENDING
+ After feed generated, will be updated to – COMPLETED
+PK_VALUE4   	BX (To indicate Bill segment is freeze or cancel)
+PK_VALUE5   	 ‘ ‘
+BATCH_CD    	CM-EXCLRT – ORMB to GCP Claim Return Extract (Client Billing).
+BATCH_NBR   	1
+CRE_DTTM    	SYSDATE
+VERSION     	1
+
+7.	If Ancillary/Claim bill is created and cancelled on the same day, we don’t want to send any entry to GCP. To achieve this, for given bill id, check in F1-GEN_PROC, if there are any entry for same bill id and PK_VALUE3 = ‘PENDING’ and PK_VALUE4 = ‘BS’.
+a.	If yes, update BS entry PK_VALUE3 = ‘COMPLETE’
+Also make above new entry for cancel (BX) also to COMPLETE. 
+	b. If No, no update is required.
+
+4.4.4.24.4.4.3	 New Batch code - CM-SUFEL – Electronic - Supplemental File Generation
+Batch Parameter -
+Param 1 – Supplemental File value : ELECTRONIC
+Parm 2 – File Path :
+Parm 3 – File Name :
+Parm 4 – Write to file count:
+Parm 5 – Environment Value : (TEST or PROD)
+Get job worker query would be -
+For Claims ---
+Query –
+SELECT DISTINCT, PK_VALUE1 as ParentPerId
+    bchgchr.adhoc_char_val AS carrier_id
+FROM f1_gen_proc proc
+JOIN ci_bseg bseg ON bseg.bill_id = proc.pk_value2
+JOIN ci_bseg_calc bcalc ON bcalc.bseg_id = bseg.bseg_id
+JOIN ci_bill_chg_char bchgchr ON bchgchr.billable_chg_id = bcalc.billable_chg_id
+    AND bchgchr.char_type_cd = 'CM-CARR'
+WHERE proc.maint_obj_cd = :maintObjCd
+  AND proc.pk_value4 = :statusCd
+  AND proc.pk_value3 = :supplementalType
+And batch_cd = :batchCd and batch_nbr = :batchNbr;
+For each thread, we will pass the - F1_GEN_PROC.pk_value1 (Parent Person Id) and Carrier Id (will derive in getJobWorker method)
+Based on above query output, we need to create threadWorkUnits.
+unit.setPrimaryId((Id)parentPersonId);
+unit.addSupplementalData("carrierId", carrier_id);
+
+Each unit will create an electronic file for a given combination of Parent Person Id and carrier id 
+4.4.4.2.14.4.4.3.1	File Naming convention
+The logic to derive the file naming convention is consistent for both Emblem Health and Gold Coast.
+1.7.	Retrieve Parent Person ID
+o	Extract the Parent Person ID from the associated work unit.
+2.8.	Access File Naming Configuration
+o	Use the Parent Person Characteristic CM-COAID to identify the relevant extendable lookup name.
+o	If extendable lookup parent code is not found for given coalition id, then default to STRD (Standard) extendable lookup
+3.9.	Fetch Naming Format
+o	Query the identified extendable lookup to retrieve the value for "Electronic File Naming Format".
+o	Store this value in a string variable, e.g., fileNameElectronic.
+4.10.	Dynamic Placeholder Replacement Logic
+Based on the contents of fileNameElectronic, apply the following transformations:
+o	If fileNameElectronic contains <ClientID>
+	Retrieve the Carrier ID from the work unit.
+	Replace <ClientID> in fileNameElectronic with the Carrier ID.
+o	Else If fileNameElectronic contains <ENV> :
+	Retrieve the Environment value from batch parameter.
+	Replace <ENV> in fileNameElectronic with the actual environment string.
+o	Else If fileNameElectronic contains <Account#>:
+	Retrieve the Account# value from BILL_LVL_3 from bill group
+	Replace < Account#> in fileNameElectronic with Account.
+o	Else If fileNameElectronic contains <LOB>:
+	Query the CM_CAG_REF_DATA table to get the value of UDF_CHAR_6 (Line of Business) using: 
+	SELECT DISTINCT UDF_CHAR_6 FROM CM_CAG_REF_DATA CAGREF WHERE CAGREF.BG_L1_IDENTIFIER = :carrierId
+	Map the Line of Business to its short form: 
+	"Commercial" → COMM
+	"Medicare" → MEDD
+	"Medicaid" → MCAID
+	Replace <LOB> in fileNameElectronic with the corresponding short form.
+o	Else If fileNameElectronic contains <YYYYMMDDHHmmSS> :
+	Get the current system date and format it as YYYYMMDDHHmmSS.
+	Replace <YYYYMMDDHHmmSS> in fileNameElectronic with the formatted timestamp.
+o	Else If fileNameElectronic contains <YYYYMMDD>:
+	Get the current system date and format it as YYYYMMDD.
+	Replace <YYYYMMDD> in fileNameElectronic with the formatted date.
+5.11.	Final Output
+o	The resulting value of fileNameElectronic after all substitutions will be used as the final file name for the extract.
+12.	Folder path – Retrieve from extendable lookup – value for “OCI Folder Path”
+6.o	Add logic based on C1-CFS feature configuration value – Local Vs OCI
+
+4.4.4.2.1.14.4.4.3.1.1	Emblem Health
+NA
+For Emblem Health, we are not sending any electronic supplemental files
+
+4.4.4.2.1.24.4.4.3.1.2	Gold Coast
+For Gold Coast, billing is processed at the client level, and we expect only a single bill to be generated.
+Sample file name -
+ 
+4.4.4.2.24.4.4.3.2	Query -
+Query to generate Electronic supplemental file is –
+SELECT 
+ txndtl.udf_char_3 AS carrier_id, 
+ CASE  
+  WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+    XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo2/text()').GETSTRINGVAL()  
+  ELSE NULL 
+ END AS rxnumber, 
+ txndtl.ext_txn_nbr AS claim_id, 
+ txndtl.udf_dttm_2 AS service_dt, 
+ txndtl.udf_char_7 AS nabp, 
+ perid.per_id_nbr AS client_id, 
+ CASE  
+  WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+    XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo15/text()').GETSTRINGVAL() 
+  ELSE NULL 
+ END AS subscriber_id, 
+ txndtl.udf_char_43 AS last_nm, 
+ txndtl.udf_char_42 AS first_nm, 
+ CASE  
+  WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+    XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo3/text()').GETSTRINGVAL()  
+  ELSE NULL 
+ END AS drug_nm, 
+ 'TBD' AS drug_cd, 
+ txndtl.udf_amt_9 AS quantity, 
+ CASE  
+  WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+    XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo20/text()').GETSTRINGVAL() 
+  ELSE NULL 
+ END AS refill_no, 
+CASE WHEN txndtl.UDF_CHAR_22 in (0, 3) then ‘O’
+ELSE WHEN txndtl.UDF_CHAR_22 in (‘1’,’2’) then ‘M’
+ELSE null
+END AS claim_typ_cd, 
+ txndtl.udf_char_5 AS group_id, 
+ txndtl.udf_char_4 AS account_id, 
+ ' ' AS mem_mid_init, 
+ CASE  
+  WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+    XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo13/text()').GETSTRINGVAL() 
+  ELSE NULL 
+ END AS relship_cd, 
+ txndtl.udf_dttm_5 AS dob, 
+ txndtl.udf_char_44 AS gender, 
+ CASE  
+  WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+    XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo1/text()').GETSTRINGVAL() 
+  ELSE NULL 
+ END AS daw, 
+ CASE  
+  WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+    XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo4/text()').GETSTRINGVAL() 
+  ELSE NULL 
+ END AS brand_class_cd, 
+ CASE 
+     WHEN txndtl.udf_char_31 = 'MAIL' THEN 'Y' 
+     ELSE 'N' 
+ END AS mail_order, 
+ NVL(txndtl.udf_amt_2, 0) AS ingred_cost, 
+ NVL(txndtl.udf_amt_7, 0) AS disp_cost, 
+ NVL(txndtl.udf_amt_10, 0) AS tax, 
+ NVL(txndtl.udf_nbr_8, 0) AS mem_resp, 
+ NVL(txndtl.udf_nbr_7, 0) AS oth_resp, 
+ NVL((select SUM(calc_amt) from ci_txn_calc tcalc where txndtl.txn_detail_id = tcalc.txn_detail_id and tcalc.rs_cd = 'CLAADMFE'), 0) AS admin_fee, 
+ ( 
+     NVL(txndtl.udf_amt_2, 0) + 
+     NVL(txndtl.udf_amt_7, 0) + 
+     NVL(txndtl.udf_amt_10, 0) + 
+     NVL(txndtl.udf_nbr_8, 0) + 
+     NVL(txndtl.udf_nbr_7, 0) + 
+     NVL((select SUM(calc_amt) from ci_txn_calc tcalc where txndtl.txn_detail_id = tcalc.txn_detail_id and tcalc.rs_cd = 'CLAADMFE'), 0) 
+ ) AS client_bill_amt, 
+ bill.bill_id AS bill_inv_nbr 
+sb.append("FROM 
+ f1_gen_proc proc 
+ JOIN ci_bill bill ON proc.pk_value2 = bill.bill_id 
+     AND proc.maint_obj_cd = 'F1-GENPROC' 
+     AND proc.pk_value3 = 'ELECTRONIC' 
+     AND proc.pk_value4 = 'PENDING' 
+ JOIN ci_per_id perid ON proc.pk_value1 = perid.per_id 
+     AND perid.prim_sw = 'Y' 
+ JOIN ci_bseg bseg ON bill.bill_id = bseg.bill_id 
+ JOIN ci_bseg_calc bcalc ON bseg.bseg_id = bcalc.bseg_id 
+ JOIN ci_bill_chg bchg ON bcalc.billable_chg_id = bchg.billable_chg_id 
+ JOIN ci_txn_dtl_pritm pritm ON bchg.billable_chg_id = pritm.billable_chg_id  
+ AND pritm.initial_price_item_cd = 'CAGCLAIM' 
+JOIN ci_txn_detail txndtl ON pritm.txn_detail_id = txndtl.txn_detail_id 
+JOIN cm_txn_detail_add_info txnaddinfo ON txndtl.txn_detail_id = txnaddinfo.txn_detail_id 
+WHERE proc.pk_value1 = :parentPersonId 
+ AND txndtl.udf_char_3 = :carrier
+And txndtl.UDF_CHAR_18 <> ‘R’ – to exclude rejected claims
+
+
+This design revisit after no bill/no pay scenario.
+After extract is completed, we need to mark the record to COMPLETE
+UPDATE F1_GEN_PROC SET PK_VALUE4 = ‘COMPLETE’ WHERE PK_VALUE1 = :parentPerId and MAINT_OBJ_CD = 'F1-GENPROC' and PK_VALUE3 = ‘ELECTRONIC’ and PK_VALUE4 = ‘PENDING’ And batch_cd = :batchCd and batch_nbr = :batchNbr;
+
+Below field mapping are for reference only, above query will give the complete output for this extract.
+
+4.4.4.2.34.4.4.3.3	Field Mapping for Electronic Supplemental File –
+
+New Field as per Tia	Sample Data
+Rx Number	669000000000
+Claim ID	152561  
+Service Date	45709
+Nabp	2587509
+Client Id	ABC
+Subscriber Id	897523852
+Patient Last Name	RITCHER
+Patient First Name	FLORIDA
+Description	Lagevrio
+Drug Code	6505506
+Quantity	1
+Refill No	0
+If Claim Type Code	O
+Group Id   	ABC123%
+Account ID	ABC123
+Member Middle Initial	 
+Relationship Cd	 
+Member Dob Value	41610
+Gender	F
+Daw Cd	0
+Brand Class Cd	G
+Mail Order Ind	Y
+Client Ingredient Cost	0
+Client Dispensing Fee	0.75
+O Sales Tax Paid	0
+Member Responsibility	0.75
+Other Payer Responsibility	0
+Client Admin Fee	0
+New Client Billed Amt	0
+Billing Invoice Number	ABC-12345
+
+4.4.4.2.44.4.4.3.4	Sample Extract -
+ 
+Rx Number	Claim ID	Service Date	Nabp	Client ID	Subscriber ID	Patient Last Name	Patient First Name	Description	Drug Code	Quantity	Refill No	If Claim Type Code	Group Id   	Account ID	Member Middle Initial	Relationship Cd	Member Dob Value	Gender	Daw Cd	Brand Class Cd		Mail Order Ind	Client Ingredient Cost	Client Dispensing Fee	O Sales Tax Paid	Member Responsibility	Other Payer Responsibility	Client Admin Fee	New Client Billed Amt	Billing Invoice Number
+2046521	-100000313112872  	12/23/2020	1417915653	EMI	24770143774	CAINE	ELINA	ORENITRAM ER	66302031001	60	0	O	000144RXCP20F    	000144    	 	3	1/12/2007	F	0	S		N	2803.75	0	0	0	0	0	2803.75	EMI-1233
+
+
+4.4.4.34.4.4.4	New Batch code - CM-SUFPR – Prescription Supplemental File Generation
+
+Prescription File format would be - .txt (delimited - ~)
+Batch Parameter -
+Param 1 – Supplemental File value : PRESCRIPTION
+Parm 2 – File Path :
+Parm 3 – File Name :
+Parm 4 – Write to file count :
+Parm 5 – Environment Value : (TEST or PROD)
+
+Get job worker query would be -
+For Claims ---
+SELECT DISTINCT, PK_VALUE1 as ParentPerId
+    bchgchr.adhoc_char_val AS carrier_id
+FROM f1_gen_proc proc
+JOIN ci_bseg bseg ON bseg.bill_id = proc.pk_value2
+JOIN ci_bseg_calc bcalc ON bcalc.bseg_id = bseg.bseg_id
+JOIN ci_bill_chg_char bchgchr ON bchgchr.billable_chg_id = bcalc.billable_chg_id
+    AND bchgchr.char_type_cd = 'CM-CARR'
+WHERE proc.maint_obj_cd = 'F1-GENPROC'
+  AND proc.pk_value4 = 'PENDING'
+  AND proc.pk_value3 = ‘PRESCRIPTION’
+And batch_cd = :batchCd and batch_nbr = :batchNbr;
+
+For each thread, we will pass the - F1_GEN_PROC.pk_value1 (Parent Person Id) and Carrier Id (will derive in getJobWorker method)
+Based on above query output, we need to create threadWorkUnits.
+unit.setPrimaryId((Id)parentPersonId);
+unit.addSupplementalData("carrierId", carrier_id);
+Each unit will create an electronic file for a given combination of Parent Person Id and carrier id 
+
+4.4.4.3.14.4.4.4.1	File Naming Convention
+The logic to derive the file naming convention is consistent for both Emblem Health and Gold Coast.
+1.	Retrieve Parent Person ID
+o	Extract the Parent Person ID from the associated work unit.
+2.	Access File Naming Configuration
+o	Use the Parent Person Characteristic CM-COAID to identify the relevant extendable lookup name.
+o	If extendable lookup parent code is not found for given coalition id, then default to STRD (Standard) extendable lookup
+3.	Fetch Naming Format
+o	Query the identified extendable lookup to retrieve the value for "Prescription File Naming Format".
+o	Store this value in a string variable, e.g., fileNamePrescription.
+4.	Dynamic Placeholder Replacement Logic
+Based on the contents of fileNamePrescription, apply the following transformations:
+o	If fileNamePrescription contains <ClientID>
+	Retrieve the Carrier ID from the work unit.
+	Replace <ClientID> in fileNamePrescription with the Carrier ID.
+o	Else If fileNamePrescription contains <ENV>:
+	Retrieve the Environment value from batch parameter.
+	Replace <ENV> in fileNamePrescription with the actual environment string.
+o	Else If fileNameElectronic contains <Account#>:
+	Retrieve the Account# value from BILL_LVL_3 from bill group
+	Replace < Account#> in fileNameElectronic with Account.
+o	Else If fileNamePrescription contains <LOB>:
+	Query the CM_CAG_REF_DATA table to get the value of UDF_CHAR_6 (Line of Business) using: 
+	SELECT DISTINCT UDF_CHAR_6 FROM CM_CAG_REF_DATA CAGREF WHERE CAGREF.BG_L1_IDENTIFIER = :carrierId
+	Map the Line of Business to its short form: 
+	"Commercial" → COMM
+	"Medicare" → MEDD
+	"Medicaid" → MCAID
+	Replace <LOB> in fileNamePrescription with the corresponding short form.
+o	Else If fileNamePrescription contains <YYYYMMDDHHmmSS> :
+	Get the current system date and format it as YYYYMMDDHHmmSS.
+	Replace <YYYYMMDDHHmmSS> in fileNamePrescription with the formatted timestamp.
+o	Else If fileNamePrescription contains <YYYYMMDD>:
+	Get the current system date and format it as YYYYMMDD.
+	Replace <YYYYMMDD> in fileNamePrescription with the formatted date.
+5.	Final Output
+o	The resulting value of fileNamePrescription after all substitutions will be used as the final file name for the extract.
+6.	Folder path – Retrieve from extendable lookup – value for “OCI Folder Path”
+6.o	Add logic based on C1-CFS feature configuration value – Local Vs OCI
+
+4.4.4.3.1.14.4.4.4.1.1	Emblem Health
+For Emblem Health, billing is processed at the account level.
+Sample file name -
+ 
+
+
+4.4.4.3.1.24.4.4.4.1.2	Gold Coast
+For Gold Coast, billing is processed at the client level, and we expect only a single bill to be generated.
+Sample file name -
+ 
+
+4.4.4.3.24.4.4.4.2	Query -
+Query to generate Prescription supplemental file is –
+
+SELECT 
+'DE' AS REC_TYP, 
+'0' AS REC_IND, 
+txndtl.ext_txn_nbr as CLAIM_ID, 
+'1' AS CLAIM_ITEM_NO, 
+'IND' AS ELG_COV_CD, 
+txndtl.udf_char_4 AS ACCOUNT_ID, 
+CASE  
+  WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+    XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo15/text()').GETSTRINGVAL() 
+  ELSE NULL 
+END AS subriberID, 
+txndtl.UDF_CHAR_43 AS LAST_NM, 
+txndtl.UDF_CHAR_42 AS FIRST_NM, 
+txndtl.UDF_CHAR_44 AS GENDER, 
+CASE WHEN txndtl.UDF_CHAR_44 = 1 THEN ‘M'
+ELSE WHEN txndtl.UDF_CHAR_44 = 2 THEN ’F'
+ELSE NULL END AS GENDER,
+CASE  
+  WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+    XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo13/text()').GETSTRINGVAL() 
+  ELSE NULL 
+END AS RELSHIP_CD, 
+txndtl.udf_char_5 AS GROUP_ID, 
+cagref.bg_l3_identifier_descr as GROUP_NAME, 
+perid.per_id_nbr AS CLIENT_ID, 
+txndtl.udf_char_23 AS OTH_COV_CD, 
+CASE  
+  WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+    XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo48/text()').GETSTRINGVAL() 
+  ELSE NULL 
+END AS SER_PROV_ID_QUAL, 
+CASE WHEN txndtl.UDF_CHAR_22 in (1,2) THEN '2222222222' 
+WHEN txndtl.UDF_CHAR_22 = 3 THEN txndtl.UDF_CHAR_49 
+ELSE txndtl.UDF_CHAR_12 
+END AS SER_PROVIDER_ID, 
+CASE  
+  WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+    XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo14/text()').GETSTRINGVAL()  
+  ELSE NULL 
+END AS PHAR_NAME, 
+perNabpID.ADDRESS1 AS PHAR_ADD_1, 
+perNabpID.ADDRESS2 AS PHAR_ADD_2,
+perNabpID.CITY AS PHAR_CITY,
+perNabpID.STATE AS PHAR_STATE,
+perNabpID.POSTAL AS PHAR_ZIP,
+perNabpID.COUNTRY AS PHAR_COUNTY,
+perPhone.phone AS PHAR_PHONE,
+CASE  
+  WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+    XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo49/text()').GETSTRINGVAL() 
+  ELSE NULL 
+END AS PRIM_PROV_TYP_CD,
+txndtl.UDF_CHAR_18 AS CLAIM_STATUS, 
+txndtl.UDF_CHAR_32 AS PRESC_REF_NUM_QUA, 
+CASE  
+  WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+    XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo2/text()').GETSTRINGVAL() 
+  ELSE NULL 
+END AS PRESC_REF_NBR, 
+txndtl.UDF_CHAR_22 AS MEM_REM_IND, 
+CASE WHEN txndtl.UDF_CHAR_22 in (0, 3) then ‘O’
+ELSE WHEN txndtl.UDF_CHAR_22 in (‘1’,’2’) then ‘M’
+ELSE null
+END AS MEM_REM_IND, 
+
+CASE WHEN txndtl.udf_char_31 = 'MAIL' THEN 'Y' ELSE 'N' END AS MAIL_ORDER, 
+txndtl.UDF_DTTM_2 AS DT_SERVICE, 
+'' AS CLAIM_SUB_DT, 
+CASE  
+  WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+    XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo50/text()').GETSTRINGVAL() 
+  ELSE NULL 
+END AS CLAIM_SUB_DT, 
+--this should only show date
+CASE  
+  WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+    XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo50/text()').GETSTRINGVAL() 
+  ELSE NULL 
+END AS CLAIM_SUB_TIME, 
+--this should only show time
+'' AS CLAIM_SUB_TIME, 
+CASE  
+  WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+    XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo3/text()').GETSTRINGVAL()  
+  ELSE NULL 
+END AS DRUG_NM, 
+txndtl.udf_char_3 AS CARRIER_ID, 
+CASE  
+  WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+    XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo2/text()').GETSTRINGVAL()  
+  ELSE NULL 
+END AS RXNUMBER, 
+txndtl.udf_dttm_2 AS SERVICE_DT, 
+txndtl.udf_char_7 AS NABP, 
+'' AS QUANTITY_DISP, 
+
+
+CASE 
+WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+CASE WHEN XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo51/text()').GETSTRINGVAL()   = 2
+THEN XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo43/text()').GETSTRINGVAL()   
+ELSE CI_TXN_DETAIL.UDF_AMT_9
+END
+END AS QUANTITY_DISP,
+IF compound_code = 2 set to claims.compound_ingredient_quantity_1 else CI_TXN_DETAIL.UDF_AMT_9
+
+
+
+
+CASE  
+  WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+    XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo20/text()').GETSTRINGVAL()  
+  ELSE NULL 
+END AS REFILL_NO, 
+ CASE  
+  WHEN txnaddinfo.txn_data_area IS NOT NULL THEN     
+    XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo21/text()').GETSTRINGVAL()  
+  ELSE NULL 
+END AS DAY_SUPPLY, 
+ txndtl.UDF_DTTM_4 AS DT_PRESC_WRITTEN, 
+ CASE  
+  WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+    XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo1/text()').GETSTRINGVAL()  
+  ELSE NULL 
+END AS DAW, 
+txndtl.UDF_NBR_12 AS REFILL_AUTH, 
+'' AS UOM, 
+'' AS DRUG_TYPE, 
+txndtl.udf_amt_2 AS INGRED_COST, 
+txndtl.udf_amt_7 AS DISP_COST, 
+txndtl.udf_amt_2  + txndtl.udf_amt_7 '' AS Total_Amt_Paid_Sources, 
+txndtl.udf_nbr_8 AS PATIENT_PAY_AMT, 
+txndtl.udf_nbr_7 AS OTH_RESP, 
+txndtl.udf_amt_10 AS TAX, 
+( 
+  select SUM(calc_amt) from ci_txn_calc tcalc where txndtl.txn_detail_id = tcalc.txn_detail_id and tcalc.rs_cd = 'CLAADMFE' 
+) AS ADMIN_FEE, 
+( 
+NVL(txndtl.udf_amt_2, 0) + 
+NVL(txndtl.udf_amt_7, 0) + 
+NVL(txndtl.udf_amt_10, 0) + 
+NVL(txndtl.udf_nbr_8, 0) + 
+NVL(txndtl.udf_nbr_7, 0) + 
+NVL((select SUM(calc_amt) from ci_txn_calc tcalc where txndtl.txn_detail_id = tcalc.txn_detail_id and tcalc.rs_cd = 'CLAADMFE'), 0) -+ 
+NVL( 
+  CASE  
+    WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+      XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo27/text()').GETSTRINGVAL() 
+    ELSE NULL 
+  END, 0) –
+NVL( 
+  CASE  
+    WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+      XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo52/text()').GETSTRINGVAL() 
+    ELSE NULL 
+  END, 0) 
+
+) AS CLIENT_BILL_AMT, 
+txndtl.UDF_CHAR_37 AS REVERSE_ID, 
+CASE WHEN txndtl.UDF_CHAR_37 IS NOT NULL THEN 1 ELSE NULL END AS ReverseIDItemNo, 
+CASE  
+  WHEN txnaddinfo.txn_data_area IS NOT NULL THEN 
+    XMLTYPE(txnaddinfo.txn_data_area).EXTRACT('//udfAddinfo2/text()').GETSTRINGVAL()  
+  ELSE NULL 
+END AS SERV_REF_NO, 
+bill.complete_dttm AS BILLED_DT, 
+'' AS SPLIT_INVOICE_DT 
+ 
+FROM f1_gen_proc proc 
+JOIN ci_per_id perid ON proc.pk_value1 = perid.per_id AND perid.prim_sw = 'Y' 
+JOIN ci_bill bill ON proc.pk_value2 = bill.bill_id 
+JOIN ci_bseg bseg ON bill.bill_id = bseg.bill_id 
+JOIN ci_bseg_calc bcalc ON bseg.bseg_id = bcalc.bseg_id 
+JOIN ci_bill_chg bchg ON bcalc.billable_chg_id = bchg.billable_chg_id 
+JOIN ci_txn_dtl_pritm pritm ON bchg.billable_chg_id = pritm.billable_chg_id AND pritm.initial_price_item_cd = 'CAGCLAIM' 
+JOIN ci_txn_detail txndtl ON pritm.txn_detail_id = txndtl.txn_detail_id 
+LEFT JOIN CI_PER_ID nabpId on nabpid.id_type_cd = 'NABPID  ' and nabpid.prim_sw = 'Y' and nabpid.per_id_nbr = txndtl.udf_char_7
+LEFT JOIN CI_PER perNabpID on perNabpID.per_id = nabpid.PER_ID
+LEFT JOIN ci_per_phone perPhone on perPhone.per_id = nabpid.PER_ID and perphone.phone_type_cd = 'PAYCON      '
+LEFT JOIN cm_txn_detail_add_info txnaddinfo ON txndtl.txn_detail_id = txnaddinfo.txn_detail_id 
+JOIN cm_cag_ref_data cagref ON cagref.bg_l1_identifier = txndtl.udf_char_3 AND cagref.bg_l2_identifier = txndtl.udf_char_4 AND cagref.bg_l3_identifier = txndtl.udf_char_5 
+WHERE proc.pk_value1 = :parentPerId  -- Parent Person ID 
+AND txndtl.udf_char_3 = :carrierId—Carrier ID 
+AND proc.maint_obj_cd = 'F1-GENPROC' 
+AND proc.pk_value3 = 'PRESCRIPTION' 
+AND proc.pk_value4 = 'PENDING'
+And txndtl.UDF_CHAR_18 <> ‘R’ – to exclude rejected claims
+;
+
+After extract is completed, we need to mark the record to COMPLETE
+UPDATE F1_GEN_PROC SET PK_VALUE4 = ‘COMPLETE’ WHERE PK_VALUE1 = :parentPerId and MAINT_OBJ_CD = 'F1-GENPROC' and PK_VALUE3 = ‘PRESCRIPTION and PK_VALUE4 = ‘PENDING’ And batch_cd = :batchCd and batch_nbr = :batchNbr ;
+
+Below field mapping are for reference only, above query will give the complete output for this extract.
+
+4.4.4.3.34.4.4.4.3	Field Mapping for Prescription Supplemental File –
+		
+New layout from Tia	Description	Judi Column Name - FLEXIBILITY WE CAN LINK TO ANOTHER JUDI FIELD IF NEEDED
+Record Type	Filed Field 'DE'	CONSTANT
+Record Ind	Fixed value is 0 = Carrier Record	CONSTANT
+Claim ID	This is a unique tracking # assigned to the claim within FPharmacy (Magellan’s POS system)	claims.id
+Claim ID Item No	Unique number assigned to each claim to track paid/reversals or any adjustments	CONSTANT
+Eligible Coverage Code	Fixed Value 'IND'	CONSTANT
+Account Id	Carrier External Group ID	claims.external_group_id
+Cardholderid	ID assigned to the cardholder	claims.submitted_cardholder_id
+Patient Last Name	Last Name of Patient	members.last_name
+Patient First Name	First Name of Patient	members.first_name
+Date Of Birth	Member Date of Birth
+ Date = DD-MMM-YY	members.birth_date
+Patient 
+r Code	Member Gender
+ M = Male
+ F = Female	members.sex
+Patient Relationship Code	1 = Cardholder
+ 2 = Spouse
+ 3 = Child
+ 4 = Other	claims.patient_relationship_code
+Groupid	Carrier Adj Group ID	claims.external_group_id
+Group Name	Carrier Group ID	members.group_name
+Client ID	Corresponds to the benefit plan set up in FPharmacy	claims.client_ID
+Other Coverage Code	Indicates if patient has other insurance	claims.other_coverage_code
+Service Provider Idqualifier	 Value in this field tells what type of pharmacy id we are sending in the file. 01- refers to NPI and 07 is NABP number. We provide qualifier as ‘1’ and in the service provider id field , submitted NPI is included.	claims.service_provider_id_qualifier
+Service Providerid	ID asssigned to Pharmacy (NPI or NABP)	CASE if claims.direct_member_reimbursement in (1,2) set to '2222222222' else if claims.direct_member_reimbursement = 3 set to claims.dmr_pay_to_vendor_id else set to ncpdp_providers.npi
+Pharmacy Name	Name of the pharmacy	claims.pharmacy_name
+Pharmacy Address Line 1	Address of the pharmacy	 
+Pharmacy Address Line 2	Address of the pharmacy	 
+Pharmacy City	City of the pharmacy	 
+Pharmacy State	State of the pharmacy	 
+Pharmacy Zip	Zip code of the pharmacy expanded	 
+Pharmacy County	County of the Pharmacy	 
+Pharmacy Phone	Contact No. of the Pharmacy	 
+Primary Provider Type Code	This is the NCPDP dispenser type code for pharmacy-1 means retail and 5 is mail order. This is based on NCPDP values. In FirstPharmacy, Mail order pharmacies are identified from mail order panels and we are sending explicit mail order indicator in the finance field. So pharmacy dispense type may have value  ‘5’ which means mail order but claim may not process as mail order if pharmacy is not contracted with us as mail order.	ncpdp_providers.primary_provider_type_code
+Claim Status	Paid = Approved claim with Pharmacy/Member, Adjusted = Reversal with Pharmacy/Member, Denied = Denied claim with Member.  We do not provide denied pharmacy claims.	claims.claim_status
+Prescription Service Ref.Num Qualifier	The Pharmacy Reference Number Qualifier indicates what type the Pharmacy number is.  1 is the norm and stands for Pharmacy Billing the other possible value is 2 that stands for Service Billing.	claims.prescription_service_reference_number_qualifier
+Prescription Service Ref.Num	Reference number assigned by the provider for the dispensed drug	claims.prescription_service_reference_number
+Member Reimbursement Indicator	 This indicates whether claim is member submitted or a pharmacy claim
+ - O- means pharmacy and
+  M is member submitted.  Claims from pharmacy can be retail or mail order.	claims.direct_member_reimbursement_indicator MAP(0=O, 1=M, 2=M, 3=O)
+Pharmacy Channel Ind	Y - Yes Means mail order
+ N - Not mail order ( Retail order)
+ Row 15(If Claim Type Code) only indicates if claim is pharmacy or member, if pharmacy then row 23(mail order Ind) indicates if claim is mail order or not.	CASE claims.pharmacy_channel = 'M', set to ' Y', else 'N'
+DateOfService	Identifies the date the prescription was filled.	claims.date_of_service
+Claim Submission Date	Identifies the data the claim is adjudicated. At times adjudication date may be different than date of service for various reasons	claims.claim_submission_date
+Claim SubmissionTime	Identifies the time the claim is adjudicated	claims.claims_submission_date
+Drug Name	Drug Description	mddb_name.drug_name
+Multi Source Code	
+M  - Multi Source
+ G  - Generic
+ S  -  Single Source	mddb_ndc.multi_source
+Quantity Dispensed	Quantity dispensed expressed in units.	CASE if claims.compound_code = 2 set to claims.compound_ingredient_quantity_1 else set to claims.quantity_dispensed
+Fill Number	The code indicating whether the prescription is an original or a refill	claims.fill_number
+Days Supply	Estimated number of days that the prescription will last.	claims.days_supply
+Date Prescription Written	Date Prescription was written Format - DD-MMM-YY	claims.date_prescription_written
+Daw 	Code indicating whether or not the prescriber's instructions regarding
+ generic substitution were followed.
+  0 = No product selection indicated
+ 1 = Substitution not allowed by Prescriber.
+ 2 = Substitution allowed.  Patient requested product  dispensed.
+ 3 = Substitution allowed.  Pharmacy requested product  dispensed.
+ 4 = Substitution allowed. Generic drug not in stock.
+ 5 = Substitution allowed. Brand drug dispensed as generic.
+ 6 = Override
+ 7 = Substitution not allowed.  Brand drug mandated by law.
+ 8 = Substitution allowed.  Generic drug not available in  marketplace.
+ 9 = Other	claims.daw
+Refills Authorized	Number of refills authorized by the prescriber	claims.number_of_refills_authorized
+Uom	NCPDP standard product billing codes (EA = each
+ GM = grams
+ ML = milliliters)	mddb_gppc.package_size_unit_of_measure
+Drug Type	NDC Drug Code	CASE if claims.compound_code = 2 set to claims.compound_product_id_1 else set to claims.ndc
+Ingredient Costpaid	Ingredient cost of the durg	claims.ingredient_cost_charged_level_1
+Dispensing Feepaid	Dispensing fee submitted by pharmacy	claims.dispensing_fee_charged_level_1
+Total Amt Paid Sources	Total Amount paid	Calculation Field
+Patient Pay Amount	Amount of Copay for plan billed	claims.patient_pay_amount
+OtherPayerResponsibility	Other Payers Payment Amount	claims.other_payer_amount_recognized
+Sales Tax Amtpaid	Sales tax amount paid  for prescription. 	claims.percentage_tax_amount_paid + claims.regulatory_fee_amount_paid
+Admin Fee Amount	Admin fee to be charged  for claim.	CONSTANT
+Invoice Amount	Amount Billed for the claim 	claims.ingredient_cost_charged_level_1 +
+ claims.dispensing_fee_charged_level_1 +
+ claims.patient_percentage_tax_amount +
+ claims.regulatory_fee_amount_paid -
+ claims.amount_of_copay -
+ claims.amount_of_coinsurance
+ (PROCESSOR FEE ONCE THIS IS MAPPED)
+Reverse ID	Parent Claim  details in case of  reversal Claim	claims.reverses_id
+Reverse ID Item No	Parent Claim  details in case of  reversal Claim	Same as HS_ITEM_NO , pass "1" for the reversal claims (when LINK_HS_ID is populated)
+Service Reference No	RX_NUMBER	claims.prescription_service_reference_number
+Billed Date	Invoice Billed Date	Claims Billed Date (Every Tuesday)
+Split Invoice Date	If the billed date month and  adjud date month are  not the same , it shows the last of day of the adjud date month, otherwise billed date and split invoice should be same.	Claims Billed Date (Every Tuesday)
+
+4.4.4.44.4.4.5	Executive Report (Summary by Group Report) -
+4.4.4.4.14.4.4.5.1	For Claims identification -
+For Claims executive file, we already insert row, as part of supplemental file insert logic – Section – 4.2.5.3 - Algorithm - CM-SUPFILE - Client Billing - Identify for Supplemental File
+4.4.4.4.24.4.4.5.2	For Ancillary and Medical Pharmacy Invoices Identification -
+For Ancillary/Medical Pharmacy executive file, we already insert row, as part of supplemental file insert logic – Section – 4.2.5.3 - Algorithm - CM-SUPFILE - Client Billing - Identify for Supplemental File.
+
+4.4.4.4.34.4.4.5.3	File Naming Convention 
+The logic to derive the file naming convention is consistent for both Emblem Health and Gold Coast.
+1.	Retrieve Parent Person ID
+o	Extract the Parent Person ID from the associated work unit.
+2.	Access File Naming Configuration
+o	Use the Parent Person Characteristic CM-COAID to identify the relevant extendable lookup name.
+o	If extendable lookup parent code is not found for given coalition id, then default to STRD (Standard) extendable lookup
+3.	Fetch Naming Format
+o	Query the identified extendable lookup to retrieve the value for "Executive File Naming Format".
+o	Store this value in a string variable, e.g., fileNameExecutive.
+4.	Dynamic Placeholder Replacement Logic
+Based on the contents of fileNameExecutive, apply the following transformations:
+o	If fileNameExecutive contains <ClientID>
+	Retrieve the Carrier ID from the work unit.
+	Replace <ClientID> in fileNameExecutive with the Carrier ID.
+o	Else If fileNameExecutive contains <ENV>:
+	Retrieve the Environment value from batch parameter.
+	Replace <ENV> in fileNameExecutive with the actual environment string.
+o	Else If fileNameExecutive contains <YYYYMMDDHHmmSS>:
+	Get the current system date and format it as YYYYMMDDHHmmSS.
+	Replace <YYYYMMDDHHmmSS> in fileNameExecutive with the formatted timestamp.
+o	Else If fileNameExecutive contains <YYYYMMDD>:
+	Get the current system date and format it as YYYYMMDD.
+	Replace <YYYYMMDD> in fileNameExecutive with the formatted date.
+5.	Final Output
+o	The resulting value of fileNameExecutive after all substitutions will be used as the final file name for the extract.
+6.	Folder path – Retrieve from extendable lookup – value for “OCI Folder Path”
+6.o	Add logic based on C1-CFS feature configuration value – Local Vs OCI
+4.4.4.4.3.14.4.4.5.3.1	Emblem Health
+Sample file name –
+ 
+4.4.4.4.3.24.4.4.5.3.2	Gold Coast
+Sample file name –
+ 
+4.4.4.4.44.4.4.5.4	CM-EXECR - New batch to generate Claim Executive report
+As part of this batch, we need to get all the parent person id’s.
+Query -
+SELECT DISTINCT PK_VALUE1 FROM F1_GEN_PROC 
+WHERE MAINT_OBJ_CD IN (RPAD(:maintainenceObjCd, 12, ' ')) 
+AND PK_VALUE4 = TRIM(:pending) 
+AND BATCH_CD = :batchCode 
+AND BATCH_NBR = :batchRunNumber 
+Each thread would be for a parent person Id (PK_VALUE1).
+In execute thread, we need to add below logic -
+For each thread, we will pass the Statement Id - F1_GEN_PROC.PK_VALUE1 (Parent Person Id)
+4.4.4.4.4.14.4.4.5.4.1	Extract Query –
+Query to extract Claim level executive report is below –
+SELECT   
+           bseg.start_dt AS BEGIN_PERIOD,  
+           bseg.end_dt AS END_PERIOD,  
+           perid.per_id_nbr AS CLIENT_ID,  
+           txndtl.udf_char_3 AS CARRIER_ID,  
+           txndtl.udf_char_4 AS ACCOUNT_ID,  
+           cagref.bg_l2_identifier_descr AS ACCOUNT_NAME,  
+           txndtl.udf_char_5 AS GROUP_ID,  
+           cagref.bg_l3_identifier_descr AS GROUP_NAME,  
+           bill.bill_id AS BILL_INV_NBR,  
+           'CLAIM' AS CATEGORY,  
+           txndtl.udf_char_31 AS SUBCATEGORY,             
+         abs(sum( count(txndtl.TXN_VOL))   AS TXN_COUNT,  
+           sum((select tcalc.calc_amt from   ci_txn_calc    tcalc where txndtl.txn_detail_id = tcalc.txn_detail_id       and tcalc.rs_cd = 'CLAADMFE'))  
+         AS ADMIN_FEE, 
+           SUM(txndtl.udf_amt_2) AS INGRED_COST,  
+           SUM(txndtl.udf_amt_7) AS DISP_COST,  
+           SUM(txndtl.udf_amt_10) AS TAX,  
+           SUM(txndtl.udf_nbr_8) AS MEM_PAID,  
+           SUM(txndtl.udf_nbr_7) AS OTH_RESP,  
+           SUM(  
+               NVL((select tcalc.calc_amt from   ci_txn_calc    tcalc where txndtl.txn_detail_id = tcalc.txn_detail_id       and tcalc.rs_cd = 'CLAADMFE'), 0) +  
+               NVL(txndtl.udf_amt_2, 0) +  
+               NVL(txndtl.udf_amt_7, 0) +  
+               NVL(txndtl.udf_amt_10, 0) +  
+               NVL(txndtl.udf_nbr_8, 0) +  
+               NVL(txndtl.udf_nbr_7, 0)  
+           ) AS PLAN_PAID  
+       FROM f1_gen_proc proc  
+       JOIN ci_bill bill ON proc.pk_value2 = bill.bill_id  
+       JOIN ci_per_id perid ON proc.pk_value1 = perid.per_id AND perid.prim_sw = 'Y'  
+       JOIN ci_bseg bseg ON bill.bill_id = bseg.bill_id  
+       JOIN ci_bseg_calc bcalc ON bseg.bseg_id = bcalc.bseg_id  
+       JOIN ci_bill_chg bchg ON bcalc.billable_chg_id = bchg.billable_chg_id  
+       JOIN ci_txn_dtl_pritm pritm ON bchg.billable_chg_id = pritm.billable_chg_id AND bchg.priceitem_cd =   pritm.initial_price_item_cd AND pritm.initial_price_item_cd = 'CAGCLAIM'    
+       JOIN ci_txn_detail txndtl ON pritm.txn_detail_id = txndtl.txn_detail_id  
+            JOIN  cm_cag_ref_data cagref ON cagref.bg_l1_identifier = txndtl.udf_char_3  
+           AND cagref.bg_l2_identifier = txndtl.udf_char_4  
+           AND cagref.bg_l3_identifier = txndtl.udf_char_5  
+       WHERE proc.pk_value1 = :parentPerId
+           AND proc.maint_obj_cd = 'F1-GENPROC'  
+           AND proc.pk_value3 = 'EXECUTIVE'  
+           AND proc.pk_value4 = 'COMPLETE'  
+And txndtl.UDF_CHAR_18 <> ‘R’ – to exclude rejected claims
+       GROUP BY   
+           bseg.start_dt,  
+           bseg.end_dt,  
+           perid.per_id_nbr,  
+           txndtl.udf_char_3,  
+           txndtl.udf_char_4,  
+           cagref.bg_l2_identifier_descr,  
+           txndtl.udf_char_5,  
+           cagref.bg_l3_identifier_descr,  
+           bill.bill_id,  
+           txndtl.udf_char_31 ;
+
+
+UPDATE F1_GEN_PROC SET PK_VALUE4 = ‘COMPLETE’ WHERE PK_VALUE1 = :parentPerId and MAINT_OBJ_CD = IN (RPAD(:maintainenceObjCd, 12, ' ')) and PK_VALUE4 = ‘PENDING’ And batch_cd = :batchCd and batch_nbr = :batchNbr ;
+4.4.4.4.4.24.4.4.5.4.2	File Layout for reference -
+
+	
+New layout from Tia	Sample Data
+Begin Period	2/17/2025
+End Period	2/23/2025
+Client ID	ABC
+ Carrier ID	 
+Account ID	ABC123
+Account Name	ABC123 Account
+Group ID	ABC123#
+Group Name	ABC123# Group
+ 	 
+Category	CLAIMS
+Sub Category	RETAIL
+Sub Category Text	Description of product code
+hard code for claims
+productcode description for Ancillary
+Admin Fee	40
+Trans Count	1,000.00
+Ingredient Cost	32,000.00
+Dispensing Fee	3,600.00
+Tax	40
+Member Paid	-4,000.00
+Other Payer Responsibility(OPAR)	-100
+Plan Paid	32,540.00
+
+4.4.4.4.4.34.4.4.5.4.3	Sample Extract -
+ 
+
+
+
+4.4.4.4.4.44.4.4.5.5	CM-EXEAR - New batch to generate Ancillary/Medical Pharmacy Executive report
+As part of this batch, we need to get all the parent id’s from Ancillary/Medical Pharmacy invoices.
+Query -
+SELECT PK_VALUE1 FROM F1_GEN_PROC WHERE MAINT_OBJ_CD in (‘NON-CLM-EXEC’) and PK_VALUE3 = ‘PENDING’ And batch_cd = :batchCd and batch_nbr = :batchNbr;
+Each thread would be for a single Parent Person id (PK_VALUE1).
+In execute thread, we need to add below logic -
+For each thread, we will pass the parent person id - F1_GEN_PROC.PK_VALUE1 (Parent Person Id)
+Process method – work unit -
+For each parent person id, fetch all the bills querying F1_GEN_PROC.
+Query - 
+SELECT DISTINCT PK_VALUE1 FROM F1_GEN_PROC 
+WHERE MAINT_OBJ_CD IN (RPAD(:maintainenceObjCd, 12, ' ')) 
+AND PK_VALUE3 = TRIM(:pending) 
+AND BATCH_CD = :batchCode 
+AND BATCH_NBR = :batchRunNumber 
+4.4.4.4.4.54.4.4.5.5.1	Extract Query -
+Query to get Ancillary Executive Report is 
+SELECT 
+    bseg.start_dt AS BEGIN_PERIOD,
+    bseg.end_dt AS END_PERIOD,
+    perid.per_id_nbr AS CLIENT_ID,
+    'ADMIN_ANCILLARY' AS CATEGORY,
+    pi.priceitem_cd,
+    pi.descr,
+    NVL(SUM(sq.svc_qty), 0) AS QTY,
+    lnchar.adhoc_char_val AS RATE,
+    NVL(SUM(calc.calc_amt), 0) AS AMT,
+    NVL(SUM(calc.calc_amt), 0) AS PLAN_PAID
+FROM f1_gen_proc proc
+JOIN ci_bseg bseg ON bseg.bill_id = proc.pk_value2
+JOIN ci_bseg_calc calc ON bseg.bseg_id = calc.bseg_id
+JOIN ci_bill_chg chg ON calc.billable_chg_id = chg.billable_chg_id
+JOIN ci_bchg_sq sq ON chg.billable_chg_id = sq.billable_chg_id
+JOIN ci_priceitem_l pi ON chg.priceitem_cd = pi.priceitem_cd
+JOIN ci_bseg_cl_char lnchar ON lnchar.bseg_id = bseg.bseg_id AND lnchar.char_type_cd = 'RVALUECH'
+LEFT JOIN ci_per_id perid ON chg.pa_per_id = perid.per_id AND perid.prim_sw = 'Y'
+WHERE proc.pk_value1 = :parentPerId
+    AND proc.maint_obj_cd = 'F1-GENPROC' 
+    AND proc.pk_value3 = 'PENDING'
+GROUP BY 
+    bseg.start_dt,
+    bseg.end_dt,
+    perid.per_id_nbr,
+    pi.priceitem_cd,
+    pi.descr,
+    lnchar.adhoc_char_val
+
+UNION
+
+-- Charges without quantity (not in CI_BCHG_SQ)
+SELECT 
+    bseg.start_dt AS BEGIN_PERIOD,
+    bseg.end_dt AS END_PERIOD,
+    perid.per_id_nbr AS CLIENT_ID,
+    'ADMIN_ANCILLARY' AS CATEGORY,
+    pi.priceitem_cd,
+    pi.descr,
+    1 AS QTY,
+    TO_CHAR(NVL(SUM(calc.calc_amt), 0)) AS RATE,
+    NVL(SUM(calc.calc_amt), 0) AS AMT,
+    NVL(SUM(calc.calc_amt), 0) AS PLAN_PAID
+FROM f1_gen_proc proc
+JOIN ci_bseg bseg ON bseg.bill_id = proc.pk_value2
+JOIN ci_bseg_calc calc ON bseg.bseg_id = calc.bseg_id
+JOIN ci_bill_chg chg ON calc.billable_chg_id = chg.billable_chg_id
+JOIN ci_priceitem_l pi ON chg.priceitem_cd = pi.priceitem_cd
+LEFT JOIN ci_per_id perid ON chg.pa_per_id = perid.per_id AND perid.prim_sw = 'Y'
+WHERE proc.pk_value1 = :parentPerId
+    AND proc.maint_obj_cd = 'F1-GENPROC' 
+    AND proc.pk_value3 = 'PENDING'
+  AND NOT EXISTS (
+      SELECT 1 
+      FROM ci_bchg_sq sq 
+      WHERE sq.billable_chg_id = chg.billable_chg_id
+  )
+GROUP BY 
+    bseg.start_dt,
+    bseg.end_dt,
+    perid.per_id_nbr,
+    pi.priceitem_cd,
+    pi.descr;
+After extract is completed, we need to mark the record to COMPLETE
+UPDATE F1_GEN_PROC SET PK_VALUE3 = ‘COMPLETE’ WHERE PK_VALUE1 = :personId and MAINT_OBJ_CD = IN (RPAD(:maintainenceObjCd, 12, ' ')) and PK_VALUE3 = ‘PENDING’ And batch_cd = :batchCd and batch_nbr = :batchNbr;
+
+4.4.4.4.4.64.4.4.5.5.2	File Layout -
+For Ancillary, some columns are blank, like account id, account name, etc.
+		
+		
+New layout from Tia	Sample Data	ORMB Fields
+Begin Period	2/17/2025	Query - SELECT MAX(START_DT) FROM CI_BSEG WHERE BILL_ID = :BILL_ID
+End Period	2/23/2025	Query - SELECT MAX(END_DT) FROM CI_BSEG WHERE BILL_ID = :BILL_ID 
+Client ID	ABC	(Parent Customer’s Primary identifier)
+ 	 	 
+Account ID	 	 
+Account Name	 	 
+Group ID	 	 
+Group Name	 	 
+ 	 	 
+Category	ADMIN_ANCILLARY	Query -
+ SELECT BILL_LVL_1 FROM C1_BILL_LVL WHERE  billing_group_id = ':billGrpId'
+ It can be CLAIM or ANCIL
+Sub Category	20054	SELECT PRICEITEM_CD |’-‘| DESCR  from query below. 
+SELECT PI.PRICEITEM_CD,PI.DESCR,NVL (SUM(SVC_QTY),0)QTY,LNCHAR.ADHOC_CHAR_VAL RATE,NVL(SUM(CALC_AMT) ,0) AMT 
+FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG, 
+CI_BCHG_SQ SQ,CI_PRICEITEM_L PI,CI_BSEG_CL_CHAR LNCHAR 
+WHERE BSEG.BILL_ID = :BILL_ID 
+and BSEG.BSEG_ID = CALC.BSEG_ID 
+AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID 
+AND CHG.BILLABLE_CHG_ID = SQ.BILLABLE_CHG_ID 
+AND CHG.PRICEITEM_CD=PI.PRICEITEM_CD 
+AND LNCHAR.BSEG_ID =BSEG.BSEG_ID 
+AND LNCHAR.CHAR_TYPE_CD = 'RVALUECH' 
+GROUP BY PI.PRICEITEM_CD,PI.DESCR,LNCHAR.ADHOC_CHAR_VAL 
+ORDER BY PI.PRICEITEM_CD 
+UNION 
+SELECT PI.PRICEITEM_CD,PI.DESCR,1 AS QTY, TO_CHAR(NVL(SUM(CALC_AMT) ,0)) RATE,NVL(SUM(CALC_AMT) ,0) AMT 
+FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG, 
+CI_PRICEITEM_L PI 
+WHERE BSEG.BILL_ID = :BILL_ID 
+and BSEG.BSEG_ID = CALC.BSEG_ID 
+AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID 
+AND CHG.PRICEITEM_CD=PI.PRICEITEM_CD 
+AND NOT EXISTS (SELECT 1 FROM CI_BCHG_SQ WHERE BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID) 
+GROUP BY PI.PRICEITEM_CD,PI.DESCR 
+Sub Category Text	Program Management Fee	Desc from above query
+Admin Fee	1268629.4	AMT from above query
+Trans Count	551,578.00	QTY from above query
+Ingredient Cost	 	 
+Dispensing Fee	 	 
+Tax	 	 
+Deductible		
+Member Paid	 	 
+Other Payer Responsibility(OPAR)	 	 
+Plan Paid	1,268,629.40	Admin Fee
+
+4.5	ORMB to GCP – Ancillary Extract
+4.5.1	Overview
+After the completion of Ancillary billing, ORMB is required to send ancillary data back to GCP. To facilitate this, a new batch process will be introduced.
+
+4.5.2	Batch Configuration
+Batch Configuration
+•	Batch Name: CM-EXANC
+•	Batch Description: Generates Ancillary extract from ORMB to GCP.
+Batch Parameter -
+•	Parm 1 – File Path :
+•	Parm 2 – File Name :
+•	Parm 3 – Write to file count:
+File Details 
+•	Sample File Name: ORMB_TO_GCP_ANCILLARY_BILLING_YYYYMM_YYYYMMDD_HHMMSS.CSV
+•	File Format:
+.csv (Comma-delimited)
+•	YYYYMM – Previous Month’s Year and month
+•	YYYYMMDD_HHMMSS – File creation Date and time
+
+4.5.3	Driver Query
+As part of post bill completion, all ancillary bills entry are inserted into F1_GEN_PROC table. Section – 4.4.4.1
+Driver query –
+SELECT PK_VALUE2 AS BILLID  
+FROM F1_GEN_PROC  
+WHERE MAINT_OBJ_CD IN ('F1-GENPROC')  
+  AND PK_VALUE3 = 'PENDING'  
+  AND BATCH_CD = :batchCd   (CM-EXANC)
+  AND BATCH_NBR = :batchNbr;
+
+
+4.5.4	Extract Layout
+Columns to Extract –
+Name of Field 	Description 	ORMB Mapping 
+ID 	GCP Id 	UDF_CHAR_6 
+ORMB Bill Group 	ORMB Bill Group Person Id 	UDF_CHAR_7 
+CARRIER 	Carrier Id for the Transaction  	UDF_CHAR_3 
+ACCOUNT 	 Account Id for the transaction 	UDF_CHAR_4 
+GROUP 	 Group Id for the transaction 	UDF_CHAR_5 
+ 
+CHARGE START DATE 	Transaction Period Start Date  	TXN_DTTM 
+CHARGE END DATE 	Transaction Period End Date 	UDF_CHAR_11
+MATERIAL # 	Priceitem 	UDF_CHAR_12
+CHARGE_TYPE 	C for Count based. A for Amount Based  	UDF_CHAR_8 
+AMOUNT 	Transaction Amount 	TXN_AMT 
+COUNT 	Transaction Volume 	TXN_VOL 
+NOTE 	Note 	UDF_CHAR_9 
+SOURCE_SYSTEM 	Source of Data 	UDF_CHAR_13 
+INVOICE_DATE	Invoice date	bill.complete_dttm
+INVOICE_NUMBER	Bill Id	bill.bill_id
+INVOICE_AMOUNT	Invoice Amount	ci_bseg_calc.calc_amt
+CUSTOMER_ID	Client Id	per_id_nbr
+ORMB_GL_ENTRY	GL Number	CI_FT_GL. gl_acct
+ACCT_PERIOD	Billing on (YYYYMM)	To_char(sysdate, 'YYYYMM')
+UNIT_OF_MEASURE	UOM	
+INVOICE_STATUS	Derived (Finalized or Cancelled)	If bill is completed then ‘F’
+If bill is cancelled, then ‘C’
+
+
+4.5.5	Query –
+Sample query for above extract –
+-- transactions from GCP
+select txndtl.UDF_CHAR_6 AS ID,
+txndtl.UDF_CHAR_7 AS BILL_GRP,
+txndtl.UDF_CHAR_3 AS CARRIER,
+txndtl.UDF_CHAR_4 AS ACCOUNT,
+txndtl.UDF_CHAR_5 AS GRP,
+to_char(txndtl.TXN_DTTM, 'YYYYMMDD') AS CHG_START_DT,
+to_char(to_date(txndtl.UDF_CHAR_11, 'YYYY-MM-DD'),'YYYYMMDD') AS CHG_END_DT,
+txndtl.UDF_CHAR_12 AS MATERIAL,
+txndtl.UDF_CHAR_8 AS CHARGE_TYPE ,
+txndtl.TXN_AMT AS AMOUNT ,
+txndtl.TXN_VOL AS COUNT,
+txndtl.UDF_CHAR_9 AS NOTE ,
+txndtl.UDF_CHAR_13 AS SOURCE_SYSTEM, 
+bill.complete_dttm AS INVOICE_DT,
+bill.bill_id as INVOICE_NUMBER,
+calc.calc_amt AS INVOICE_AMT,
+perid.per_id_nbr AS CLIENT_ID,
+ftgl.gl_acct as ORMB_GL_ENTRY,
+To_char(sysdate, 'YYYYMM') as acct_period,
+pchar.char_val AS UOM,
+CASE WHEN ft.FT_TYPE_FLG = 'BS' THEN 'F'
+ELSE WHEN ft.FT_TYPE_FLG = 'BX' THEN 'C'
+ELSE ''
+END AS INVOICE_STATUS
+
+from F1_GEN_PROC proc 
+join ci_bill bill on bill.bill_id = proc.pk_value2
+join ci_bseg bseg on bseg.bill_id = bill.bill_id 
+JOIN ci_bseg_calc calc ON bseg.bseg_id = calc.bseg_id
+Join ci_bill_chg bchg on bchg.billable_chg_id = calc.billable_chg_id
+join ci_txn_dtl_pritm tpritm on tpritm.billable_chg_id = bchg.billable_chg_id and bchg.priceitem_cd = tpritm.initial_price_item_cd 
+join ci_txn_detail txndtl on tpritm.txn_detail_id = txndtl.txn_detail_id
+left join ci_priceitem_char pchar on pchar.priceitem_cd = bchg.priceitem_cd and pchar.char_type_cd = 'CMUOMREP'
+LEFT JOIN ci_per_id perid ON bchg.pa_per_id = perid.per_id AND perid.prim_sw = 'Y'
+LEFT join ci_ft ft on ft.sibling_id = bseg.bseg_id and ft.FT_TYPE_FLG = proc.PK_VALUE4
+LEFT join ci_ft_gl ftgl on ftgl.ft_id = ft.ft_id and ftgl.dst_id = 'REV'
+where bill.acct_id in (
+select acct_id from ci_acct_char where char_type_cd = 'C1INVTYP' and char_val = 'ANCIL')
+--and bill.bill_id = '781198735686'
+--and bill.bill_id = '320006743057'
+and proc.MAINT_OBJ_CD IN ('F1-GENPROC')  
+  AND proc.PK_VALUE3 = 'PENDING'  
+  AND proc.BATCH_CD = :batchCd  -- (CM-EXANC)
+  AND proc.BATCH_NBR = :batchNbr
+
+UNION
+-- Manual entry
+select 
+'ORMB'||bchg.billable_chg_id AS ID,
+' ' AS BILL_GRP,
+carrbchg.adhoc_char_val AS CARRIER,
+acctbchg.adhoc_char_val AS ACCOUNT,
+grpbchg.adhoc_char_val AS GRP,
+to_char(bchg.start_dt, 'YYYYMMDD') AS CHG_START_DT,
+to_char(bchg.end_dt, 'YYYYMMDD') AS CHG_END_DT,
+bchg.priceitem_cd AS MATERIAL,
+CASE WHEN bchgline.billable_chg_id is null AND bsq.billable_chg_id is not null THEN 'C'
+WHEN bchgline.billable_chg_id is not null AND bsq.billable_chg_id is null THEN 'A'
+ELSE '' END AS CHARGE_TYPE,
+bchgline.charge_amt AS AMOUNT,
+bsq.svc_qty AS COUNT,
+' ' AS NOTE ,
+' ' AS SOURCE_SYSTEM, 
+bill.complete_dttm AS INVOICE_DT,
+bill.bill_id as INVOICE_NUMBER,
+calc.calc_amt AS INVOICE_AMT,
+perid.per_id_nbr AS CLIENT_ID,
+ftgl.gl_acct as ORMB_GL_ENTRY,
+To_char(sysdate, 'YYYYMM') as acct_period,
+pchar.char_val AS UOM,
+CASE WHEN ft.FT_TYPE_FLG = 'BS' THEN 'F'
+ELSE WHEN ft.FT_TYPE_FLG = 'BX' THEN 'C'
+ELSE ''
+END AS INVOICE_STATUS
+
+from F1_GEN_PROC proc 
+join ci_bill bill on bill.bill_id = proc.pk_value2
+join ci_bseg bseg on bseg.bill_id = bill.bill_id 
+JOIN ci_bseg_calc calc ON bseg.bseg_id = calc.bseg_id
+Join ci_bill_chg bchg on bchg.billable_chg_id = calc.billable_chg_id
+LEFT JOIN ci_per_id perid ON bchg.pa_per_id = perid.per_id AND perid.prim_sw = 'Y'
+left join ci_priceitem_char pchar on pchar.priceitem_cd = bchg.priceitem_cd and pchar.char_type_cd = 'CMUOMREP'
+left join ci_bchg_sq bsq on bchg.billable_chg_id = bsq.billable_chg_id and bsq.sqi_cd = 'COUNT'
+left join CI_B_CHG_LINE bchgline on bchgline.billable_chg_id = bchg.billable_chg_id
+LEFT join ci_ft ft on ft.sibling_id = bseg.bseg_id
+LEFT join ci_ft_gl ftgl on ftgl.ft_id = ft.ft_id and ftgl.dst_id = 'REV' and ft.FT_TYPE_FLG = proc.PK_VALUE4
+LEFT join ci_bill_chg_char carrbchg on bchg.billable_chg_id = carrbchg.billable_chg_id and carrbchg.char_type_cd = 'CM-CARR'
+LEFT join ci_bill_chg_char acctbchg on bchg.billable_chg_id = acctbchg.billable_chg_id and acctbchg.char_type_cd = 'CM-ACCT'
+LEFT join ci_bill_chg_char grpbchg on bchg.billable_chg_id = grpbchg.billable_chg_id and grpbchg.char_type_cd = 'CM-GRPD'
+where bill.acct_id in (
+select acct_id from ci_acct_char where char_type_cd = 'C1INVTYP' and char_val = 'ANCIL')
+--and bill.bill_id = '781198735686'
+--and bill.bill_id in  ('320006743057','897458971945','734074032545')
+and bchg.feed_source_flg != 'TFM'
+and proc.MAINT_OBJ_CD IN ('F1-GENPROC')  
+AND proc.PK_VALUE3 = 'PENDING'  
+AND proc.BATCH_CD = :batchCd  -- (CM-EXANC)
+AND proc.BATCH_NBR = :batchNbr;
+4.5.6	Post Extract Completion
+After extract is completed, we need to mark the record to COMPLETE
+UPDATE F1_GEN_PROC SET PK_VALUE3 = ‘COMPLETE’ 
+WHERE MAINT_OBJ_CD IN ('F1-GENPROC')  
+  AND PK_VALUE3 = 'PENDING'  
+  AND BATCH_CD = :batchCd  
+  AND BATCH_NBR = :batchNbr;
+
+
+
+4.6	Alternate Bill Number
+4.6.1	Overview
+Requirement is to have unique bill sequence number for each AR customer and invoice type.
+ 
+4.6.2	Configuration
+4.6.2.1	Installation Option
+On installation Options screen, under Billing Tab, we must do below updates –
+Use Sequential Bill Numbers – should be checked
+Sequential Invoice – Select Division-Specific
+ 
+4.6.2.2	Division Algorithm
+Sequence bill numbers apply to only CAG billing (Claim and Ancillary). New algorithm would be configured under CBIL division only.
+ 
+4.6.3	New Algorithm Type – CM-BILLSEQ
+Algorithm Type	CM-BILLSEQ
+Description	Generate new bill sequence number
+Detailed Description	This Algorithm will generate new bill sequence number for new complete bill for CAG billing
+Algorithm Entity	Division - Sequential Bill Number Generation
+
+
+4.6.3.1	Soft Parameters
+Sequence	Description	Value	Required
+10	Parent Person Identifier	CLIENTID	Y
+20	Starting Sequence Number	000001	Y
+30	Person Relationship Type	BILLING	Y
+40	Account Invoice Type	C1INVTYP	Y
+50	Ancillary Invoice Type Char Value	ANCIL	Y
+60	Ancillary Sequence Prefix	A	Y
+70	Claim Invoice Type Char Value	CLAIM	Y
+80	Claim Sequence Prefix	C	Y
+90	Alternate Bill Number Delimiter	-	Y
+4.6.3.2	Processing Logic 
+1.8.	From bill id, get the account id and person id.
+2.9.	Using Account id, find the parent person id.
+a.	Get the parent person’s primary identifier – CLIENTID. This would be the client id.
+Query – 
+select pid.per_id_nbr as client_Id
+from ci_per_id pid
+join ci_per_per pp on pp.per_id1 = pid.per_id
+join ci_acct_per ap on pp.per_id2 = ap.per_id 
+where pp.per_rel_type_cd= :perRelType
+and ap.acct_id=:accountId
+and pid.id_type_cd = :parPerId and pid.prim_sw = 'Y'
+and ap.main_cust_sw = 'Y';
+3.10.	Using Account id, retrieve the “Invoice Type” Characteristic
+a.	It can be either ANCIL or CLAIM
+Query –
+select char_val as invoice_type 
+from ci_acct_char 
+where acct_id = :accountId and char_type_cd = :acctInvType;
+4.11.	First bill –
+Check for this client id, if this is the first bill.
+Query –
+select bill.alt_bill_id as seq_num
+from ci_bill bill
+join ci_acct_per aper on aper.acct_id = bill.acct_id
+left join ci_acct_char achr on achr.acct_id = aper.acct_id
+join ci_per_per pp on pp.per_id2 = aper.per_id
+join ci_per_id pid on pid.per_id = pp.per_id1
+where 
+pp.per_rel_type_cd= :perRelType
+and pid.id_type_cd = :parPerId  
+and pid.per_id_nbr = :clientId -- from step #2
+and pid.prim_sw = 'Y'
+and aper.main_cust_sw = 'Y'
+and bill.bill_stat_flg = 'C'
+and achr.char_type_cd = :acctInvType
+and achr.char_val = :invoiceType -- from step #3
+and bill.alt_bill_id != null
+order by bill.alt_bill_id desc;
+If yes, we need to form the bill sequence number like below –
+Append Client Id + “-(Hyphen)” + “A or C” (Based on Invoice Type) + Starting Sequence Number (Algo param)
+5.12.	Else - 2nd bill onwards -
+Get the last billed id for given client id.
+For that bill, get the ALT_BILL_ID, fetch the last 6 digit, add 1 to the number.
+After we get the number to fit the new number to 6 digits, use oracle function - LPAD('121', 6, '0') to derive the final number.
+New sequence number would be –
+Append Client Id + “-(Hyphen)” + “A or C” (Based on Invoice Type) + derived Sequence Number
+6.13.	Last step is to assign this string to algorithm setter - setDivisionSpecificAlternateBillNumber(from step #4 or #5).
+4.6.4	Error Handling cases
+	If error in processing, add errors, so it can be shown in batch run tree.
+Account Invoice Type is missing
+	Parent Person or Parent Person Primary Id is missing/could not be derived
+4.6.44.6.5	Assign Sequential Bill Number Batch
+Base batch - Assign Sequential Bill Numbers (ASSGNSBN) batch needs to be executed to stamp alternate bill sequence number for completed bill.
+
+4.7	Bill Hold at Bill Level/Bill Group Level
+Prime wants flexibility to hold bills for finalization. In order to achieve this, a characteristic will be created that the biller can manually add at the BG level or Bill entity. The only valid value for this char is “Y”.
+If the characteristic is setup as “Y”, that implies the bills under that billing group (or if applicable at bill entity, then only that bill) won’t be finalized by the system. 
+In case the biller wants to remove the hold, the biller will delete the characteristic.
+
+4.7.1	Properties
+Algorithm Type	CM-BILLHOLD
+Description	Bill Hold at Bill Level/Bill Group Level
+Detailed Description	This Algorithm will prevent bill completion if the Characteristic Type and Value defined in the parameter exists on the Bill or Bill Group.
+Algorithm Entity	Customer Class – Pre Bill Completion Review
+
+4.7.2	Soft Parameters
+Sequence	Description	Value	Required
+10	Bill Hold Characteristic Type	CMBLHOLD	Y
+20	Bill Hold Characteristic Value	Y	Y
+30	Bill Group Person TypeHold To Do Type	BGCM-BILHD	Y
+40	Person Relationship TypeBill Hold To Do Role	BILLING	YN
+
+4.7.3	Processing Logic
+•	Retrieve the Bill Hold Characteristic from the current Bill.
+o	Characteristic Type = Bill Hold Characteristic Type Parameter
+o	Value = Bill Hold Characteristic Value Parameter
+•	If Bill Hold Characteristic is retrieved
+o	Prevent the Bill from completion.
+	Create Bill Exception on the Bill
+•	Message = “Bill Hold found on Bill (%1).”
+	Create To Do and link it to the current Bill.
+•	To Do Type = Bill Hold To Do Type Parameter
+•	If Bill Hold To Do Role Parameter is populated
+o	To Do Role = Bill Hold To Do Role Parameter
+•	Drill Key = Bill Id
+•	Sort Key 1 = Bill Id
+•	Sort Key 2 = Main Person Primary Name
+•	Message = “Bill Hold found on Bill (%1).”
+	Bill Completion Action = Create Exception
+o	Exit processing.
+•	Retrieve the Bill Hold Characteristic from the Bill Group.
+o	Get the Main Person of the current Account linked to the Bill.
+o	If the Person Type of the Main Person is equal to Bill Group Person Type Parameter
+o	Retrieve the effective Bill Hold Characteristic from the Main Person
+	Characteristic Type = Bill Hold Characteristic Type Parameter
+	Value = Bill Hold Characteristic Value Parameter
+o	If Bill Hold Characteristic is retrieved
+	Prevent the Bill from completion.
+•	Create Bill Exception on the Bill
+o	Message = “Bill Hold found on Bill Group (%1).”
+•	Create To Do and link it to the current Bill.
+o	To Do Type = Bill Hold To Do Type Parameter
+o	If Bill Hold To Do Role Parameter is populated
+	To Do Role = Bill Hold To Do Role Parameter
+o	Drill Key = Bill Id
+o	Sort Key 1 = Bill Id
+o	Sort Key 2 = Main Person Primary Name
+o	Message = “Bill Hold found on Bill Group (%1).”
+•	Bill Completion Action = Create Exception
+	Exit processing.
+o	Else
+	Find the Bill Group Person of the Main Person with the following information:
+•	Relationship Type = Person Relationship Type Parameter
+•	Start Date <= Process Date
+•	End Date is blank/null OR End Date >= Process Date
+•	Person Id 1 = Main Person Id
+•	Bill Group Person (Person Id 2) with below Characteristic exists:
+o	Characteristic Type = Bill Hold Characteristic Type Parameter
+o	Value = Bill Hold Characteristic Value Parameter
+	If at least one Bill Group Person is found
+•	Prevent the Bill from completion.
+o	Message = “Bill Hold found on Bill Group (%1).”
+o	Bill Completion Action = Create Exception
+•	Exit processing.
+•	Bill Completion Action = Carry on with Bill Completion.
+
+
+4.8	ORMB to GCP – Claims Return Extract
+4.8.1	Overview
+Once claims billing flow is completed, ORMB needs to extract claim level extract to GCP for frozen client billings only. A new custom batch to extract this extract needs to be developed.
+4.8.2	Batch Configuration
+Batch Configuration
+•	Batch Name: CM-EXCLRT
+•	Batch Description: ORMB to GCP Claim extract for Client Billing
+Batch Parameter -
+•	Parm 1 – File Path :
+•	Parm 2 – File Name :
+•	Parm 3 – Write to file count:
+File Details 
+•	Sample File Name: PRIME_ORMB_TO_GCP_CLAIM_YYYYMMDDHHMMSS.PSV
+•	File Format: .PSV (Pipe-delimited)
+•	YYYYMMDDHHMMSS – File creation Date and time
+•	Frequency – this job will run daily, if no data to extract, still file needs to be created with header only record.
+
+
+4.8.3	Driver Query
+As part of post bill completion, all client bills entry is inserted into F1_GEN_PROC table. Section – 4.4.4.1.3	Claim Return Extract (Client Billing) – Identification inserts
+Driver query –
+SELECT PK_VALUE2 AS BILLID  
+FROM F1_GEN_PROC  
+WHERE MAINT_OBJ_CD IN ('F1-GENPROC')  
+  AND PK_VALUE3 = 'PENDING'  
+  AND BATCH_CD = :batchCd   (CM-EXCLRT)
+  AND BATCH_NBR = :batchNbr;
+
+4.8.4	Extract Layout
+
+Columns to Extract –
+Name of Header Field 	Description 	ORMB Mapping 
+ADJUDICATION_CLAIM_ID	Claim Id	ext_txn_nbr
+CLIENT_INVOICE_NUMBER	ORMB Alternate Bill Number 	bill.alt_bill_id
+CLIENT_INVOICE_DATE 	Bill Completion Date
+(YYYY-MM-DD) 	bill.complete_dttm
+CLIENT_INVOICE_AMOUNT 	pay_amount_level_1 for a given claim id	txndtl.txn_amt
+ADMIN_FEE 	Admin fee 	tcalc.calc_amt 
+INVOICE_STATUS	Invoice status 
+F- Finalized
+C- Cancelled 	bseg_stat_flg
+
+4.8.5	Query
+Sample Query for this extract –
+select txndtl.ext_txn_nbr as CLIENT_ID, 
+bill.alt_bill_id as CLIENT_NBR,
+bill.complete_dttm,
+CASE WHEN bseg.bseg_stat_flg = '50' THEN txndtl.txn_amt
+WHEN bseg.bseg_stat_flg = '60' THEN txndtl.txn_amt*-1
+ELSE 0 END AS CLIENT_INV_AMT,
+CASE WHEN bseg.bseg_stat_flg = '50' THEN tcalc.calc_amt
+WHEN bseg.bseg_stat_flg = '60' THEN tcalc.calc_amt*-1
+ELSE 0 END AS ADMIN_FEE,
+CASE WHEN bseg.bseg_stat_flg = '50' THEN 'F'
+WHEN bseg.bseg_stat_flg = '60' THEN 'C'
+ELSE '' END AS INVOICE_STATUS
+from F1_GEN_PROC proc 
+join ci_bill bill on bill.bill_id = proc.pk_value2
+join ci_bseg bseg on bseg.bill_id = bill.bill_id 
+JOIN ci_bseg_calc calc ON bseg.bseg_id = calc.bseg_id
+Join ci_bill_chg bchg on bchg.billable_chg_id = calc.billable_chg_id
+left join ci_txn_dtl_pritm tpritm on tpritm.billable_chg_id = bchg.billable_chg_id and bchg.priceitem_cd = tpritm.initial_price_item_cd 
+left join ci_txn_detail txndtl on tpritm.txn_detail_id = txndtl.txn_detail_id
+left join ci_txn_calc tcalc on txndtl.txn_detail_id = tcalc.txn_detail_id and tcalc.rs_cd = 'CLAADMFE' 
+where 
+--bill.bill_id in ('316798583518','555985542319') and
+ proc.MAINT_OBJ_CD IN ('F1-GENPROC')  
+  AND proc.PK_VALUE3 = 'PENDING'  
+  AND proc.BATCH_CD = :batchCd  -- (CM-EXCLRT)
+  AND proc.BATCH_NBR = :batchNbr
+;
+
+
+4.8.6	Post Extract Completion
+After extract is completed, we need to mark the record to COMPLETE
+UPDATE F1_GEN_PROC SET PK_VALUE3 = ‘COMPLETE’ 
+WHERE MAINT_OBJ_CD IN ('F1-GENPROC')  
+  AND PK_VALUE3 = 'PENDING'  
+  AND BATCH_CD = :batchCd  
+  AND BATCH_NBR = :batchNbr;
+
+
+5	CONFIGURATION
+5.1	Calendar
+1.	Business: This will the calendar which will include weekend and any federal holidays as non-business days
+2.	Calendar: This will be the regular calendar without any weekends and holidays consideration
+5.2	Bill Route Types
+Bill Route Type	Description	Extract batch	Extract Algorithm
+CLAIM	Claim Invoice	NEWBATCH1	NEWALGO1
+ANCIL	Ancillary Invoice	NEWBATCH1	NEWALGO2
+MEDPH	Medical Pharmacy Invoice	NEWBATCH1	NEWALGO3
+			
+5.3	Characteristic Type
+Char Type	Description	Type	Entity	Values
+CMPONUMB	PO Number	Adhoc	Person	
+CMBLHOLD	Bill Hold	Predefined	Person, Bill	Y -– Yes
+CM-REFID	REF Id	Adhoc	Price item	
+
+5.4	Extendable Lookup
+5.4.1	CM-MarketsExtLookup
+Configure for Values – OTH, MDM, MPS and OTH.
+Attribute	Value
+Logo Code	Prime Therapeutics
+Prime Address	Prime Therapeutics LLC
+2900 Ames Crossing Road, Suite 200
+Eagan, MN  55121
+www.primetherapeutics.com
+
+Remit To	Prime Therapeutics, P.O. Box 860466 Minneapolis, MN 55486-0466
+Wire To	Wire & ACH Transfer Instructions:  U.S. Bank, N.A., 800 Nicolett Mall, Minneapolis, MN 55402
+ABA# 123000848, Account Name:  Prime Therapeutics LLC
+Beneficiary Account Number (Wire):  153910871687, Receiving Account Number (ACH):  15310871687
+Please Reference Invoice Number
+Prime Contact Email	xxxxx@primetherapeutics.com
+
+5.5	To Do Type
+5.5.1	CM-BILHD
+To Do Type	CM-BILHD
+Description	Bill with Bill Hold
+Priority	10 - Highest
+To Do Type Usage	Automatic
+Navigation Option	billMaint (Bill)
+Message Category	
+Message Number	
+Roles
+To Do Role	Use as Default
+F1_DFLT	Y
+TBD	
+Sort Keys
+Sequence	Description
+1	Bill ID
+2	Account Name
+Drill Keys
+Sequence	Table	Field
+1	CI_BILL	BILL_ID
+
+
+
+6	APPENDIX
