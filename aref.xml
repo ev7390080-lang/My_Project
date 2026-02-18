@@ -1,0 +1,183 @@
+<invoiceData>
+	<logoCd>file:////u01/app/spl/RMB2901/splapp/applications/root/cm/logos</logoCd>
+	<primeInfo>
+		<primeAddress>
+			<address1>Prime Theraupetics LLC</address1>
+			<address2>2900 Ames Crossing Road, Suite 200</address2>
+			<address3>Eagan, MN 55121</address3>
+			<address4/>
+		</primeAddress>
+		<emailId>www.primetheraupetics.com</emailId>
+	</primeInfo>
+	<BillToInfo>
+		<customerAddress>
+			<address1>ABC Corporation</address1>
+                        <address2>Carrier:ABC1</address2>
+			<address3>Division XYZ Street</address3>
+			<address4>ABC City, ST 00000</address4>
+		</customerAddress>
+	</BillToInfo>
+	<billId/>
+	<invoiceDate>03/31/2025</invoiceDate>
+	<billingPeriod>2/01/2025 - 2/28/2025</billingPeriod>
+	<customerId>10003</customerId>
+	<invoiceNumber>ABC-49876</invoiceNumber>
+	<paymentTerms>Net 30 days</paymentTerms>
+	<dueDate>04/30/2025</dueDate>
+	<poNumber>4700013587LN10</poNumber>
+	<ancillaryDetails>
+		<ancillaryCost>
+			<ancillaryCostEntry>
+				<item>20054 - Program Management Fee</item>
+				<referenceId>C01</referenceId>
+				<quantity>551578</quantity>
+				<rate>2.30</rate>
+				<amount>1268629.40</amount>
+			</ancillaryCostEntry>
+			<ancillaryCostEntry>
+				<item>20711 - Excess Savings Credit</item>
+				<referenceId>C01</referenceId>
+				<quantity>550578</quantity>
+				<rate>0.065</rate>
+				<amount>35787.57</amount>
+			</ancillaryCostEntry>
+			<ancillaryCostEntry>
+				<item>20030 - Paper Claims</item>
+				<referenceId>P01</referenceId>
+				<quantity>220</quantity>
+				<rate>2.50</rate>
+				<amount>550</amount>
+			</ancillaryCostEntry>
+			<ancillaryCostEntry>
+				<item>20578 - Network Administration Fee</item>
+				<referenceId>N01</referenceId>
+				<quantity>332454</quantity>
+				<rate>0.25</rate>
+				<amount>83113.50</amount>
+			</ancillaryCostEntry>
+			<ancillaryCostEntry>
+				<item>20621 - Real Time Benefit Check</item>
+				<referenceId>M11</referenceId>
+				<quantity>15666</quantity>
+				<rate>2.50</rate>
+				<amount>39165</amount>
+			</ancillaryCostEntry>
+		</ancillaryCost>
+		<invoiceTotal>1355670.33</invoiceTotal>
+	</ancillaryDetails>
+	<invoiceDetails>
+		<chargeDescriptionDetails>
+			<name>20054 - Program Management Fee</name>
+			<referenceId>C01</referenceId>
+			<rateDescriptionGroup>
+				<rateDescription>
+					<carrierIdName>ABC Corporation</carrierIdName>
+					<notes></notes>
+					<quantity>550000</quantity>
+					<rate>2.30</rate>
+					<amount>1265000</amount>
+				</rateDescription>
+				<rateDescription>
+					<carrierIdName>ABC Corporation</carrierIdName>
+					<notes></notes>
+					<quantity>1578</quantity>
+					<rate>2.30</rate>
+					<amount>3629.40</amount>
+				</rateDescription>
+			</rateDescriptionGroup>
+			<totalItemQuantity>610000</totalItemQuantity>
+			<totalItemAmount>1268629.40</totalItemAmount>
+		</chargeDescriptionDetails>
+		<chargeDescriptionDetails>
+			<name>20711 - Excess Savings Credit</name>
+			<referenceId>C01</referenceId>
+			<rateDescriptionGroup>
+				<rateDescription>
+					<carrierIdName>ABC Corporation</carrierIdName>
+					<notes></notes>
+					<quantity>550578</quantity>
+					<rate>0.065</rate>
+					<amount>35787.57</amount>
+				</rateDescription>
+			</rateDescriptionGroup>
+			<totalItemQuantity>550578</totalItemQuantity>
+			<totalItemAmount>35787.57</totalItemAmount>
+		</chargeDescriptionDetails>
+		<chargeDescriptionDetails>
+			<name>20578 - Network Administration Fee</name>
+			<referenceId>N01</referenceId>
+			<rateDescriptionGroup>
+				<rateDescription>
+					<carrierIdName>ABC Corporation</carrierIdName>
+					<notes>JAN-25</notes>
+					<quantity>160565</quantity>
+					<rate>0.25</rate>
+					<amount>40141.25</amount>
+				</rateDescription>
+				<rateDescription>
+					<carrierIdName>ABC Corporation</carrierIdName>
+					<notes>FEB-25</notes>
+					<quantity>171889</quantity>
+					<rate>0.25</rate>
+					<amount>42972.25</amount>
+				</rateDescription>
+			</rateDescriptionGroup>
+			<totalItemQuantity>332454</totalItemQuantity>
+			<totalItemAmount>83113.50</totalItemAmount>
+		</chargeDescriptionDetails>
+		<chargeDescriptionDetails>
+			<name>20621 - Real Time Benefit Check</name>
+			<referenceId>M11</referenceId>
+			<rateDescriptionGroup>
+				<rateDescription>
+					<carrierIdName>ABC Corporation</carrierIdName>
+					<notes></notes>
+					<quantity>15666</quantity>
+					<rate>2.50</rate>
+					<amount>39165.00</amount>
+				</rateDescription>
+			</rateDescriptionGroup>
+			<totalItemQuantity>15666</totalItemQuantity>
+			<totalItemAmount>39165.00</totalItemAmount>
+		</chargeDescriptionDetails>
+	</invoiceDetails>
+	<billMsgs>
+		<billMsg/>
+	</billMsgs>
+	<remitPayment>Please remit payment to:</remitPayment>
+	<remitAddress>
+		<remitAddress1>
+			<address1>Prime Theraupetics LLC,</address1>
+			<address2>P.O. Box 860466 Minneapolis,</address2>
+			<address3>MN 55486-0466</address3>
+			<address4/>
+		</remitAddress1>
+		<orOption>OR</orOption>
+		<remitAddress2>
+			<desc>Wire and ACH Transfer Instructions:</desc>
+			<address1>US Bank, N.A,</address1>
+			<address2>800 Nicolett Mall, Minneapolis,</address2>
+			<address3>MN 555402</address3>
+			<address4>ABA# 123000848,</address4>
+			<accountInfo>
+				<accountNameDesc>Account Name:</accountNameDesc>
+				<accountName>Prime Theraupetics LLC</accountName>
+				<accountNumberInfo>
+					<details>
+						<accountNumberDesc>Beneficiary Account Number(Wire):</accountNumberDesc>
+						<accountNumber>15310871687</accountNumber>
+					</details>
+					<details>
+						<accountNumberDesc>Beneficiary Account Number(Wire):</accountNumberDesc>
+						<accountNumber>15310871687</accountNumber>
+					</details>
+				</accountNumberInfo>
+			</accountInfo>
+		</remitAddress2>
+		<reference>Please Reference Invoice Number</reference>
+	</remitAddress>
+	<footers>
+		<footer1/>
+		<footer2>If this is credit balance, please deduct the credit from next invoice. Any questions please contact xxx@primetheraupetics.com.</footer2>
+	</footers>
+</invoiceData>
