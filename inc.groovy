@@ -1,0 +1,1654 @@
+void invoke(){
+  main();
+}
+
+// Perf Update - Start Update
+//void main(){
+private void main(){
+// Perf Update - End Update
+  account = bill.getAccount();
+  Account_Id acctId=account.getId();
+  String DOLLAR = account.getCurrency().getId().getEntity().getCurrencySymbol().trim() + " ";
+  Person_Id bgPerId = getAccountPersonId(acctId);
+  Person_Id parentPerId = getParentPersonID(bgPerId);
+
+  String lookupVal = getPersonCharacteristicTypeValue(parentPerId.getEntity(), getIndustry().getId().getTrimmedValue());
+  String boDataAreaXML = "";
+  ExtendedLookupValue_Id lookupValue = new ExtendedLookupValue_Id(new BusinessObject_Id(getExtendableLookupBo()).getEntity(), lookupVal);
+  ExtendedLookupValue extLookupValue = (ExtendedLookupValue)lookupValue.getEntity();
+  if(!isNull(extLookupValue))
+  {
+    boDataAreaXML = "<root>" + extLookupValue.getBusinessObjectDataArea() +"</root>";
+    //boDataAreaXML = extLookupValue.getBusinessObjectDataArea();
+   logger.info("boDataAreaXML " + boDataAreaXML);
+  }
+  
+  javax.xml.parsers.DocumentBuilderFactory factory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+  javax.xml.parsers.DocumentBuilder builder = null;
+  try {
+    builder = factory.newDocumentBuilder();
+    doc = builder.newDocument();
+    extLkupDoc = builder.parse(new org.xml.sax.InputSource(new StringReader(boDataAreaXML)));
+   logger.info("extLkupDoc " + extLkupDoc );
+  } catch (javax.xml.parsers.ParserConfigurationException e) {
+    // TODO Auto-generated catch block
+    e.printStackTrace();
+    logger.error("XML Parse Error", e);
+  }
+  catch (Exception e) {
+    // TODO Auto-generated catch block
+    e.printStackTrace();
+  }
+
+
+  createInvoiceExtractDocument(DOLLAR, account, bgPerId, parentPerId, lookupVal);
+
+  //writeXmlFileSummary() method START
+  String billId = bill.getId().getTrimmedValue();
+  BufferedWriter writer = null;
+
+  try
+  {
+    extractFileName = getFilePath(getXmlFilePath()) + File.separator+ "xmlFile" + billId.trim() + ".xml";
+    File xmlExtractFile = new File(extractFileName);
+
+    writer = new BufferedWriter(new FileWriter(new File(extractFileName), true));
+
+    PrintWriter writer1 = new PrintWriter(extractFileName);
+    writer1.print("");
+    writer1.close();
+
+    try {
+      javax.xml.transform.TransformerFactory transformerFactory = javax.xml.transform.TransformerFactory.newInstance();
+      javax.xml.transform.Transformer transformer = transformerFactory.newTransformer();
+      transformer.setOutputProperty(javax.xml.transform.OutputKeys.OMIT_XML_DECLARATION, "yes");
+      transformer.setOutputProperty(javax.xml.transform.OutputKeys.ENCODING, "UTF-8");
+      // Use DOMSource to provide the W3C Document as the source
+      javax.xml.transform.dom.DOMSource source = new javax.xml.transform.dom.DOMSource(doc.getDocumentElement());
+      // Use StreamResult to direct the output to the provided Writer
+      javax.xml.transform.stream.StreamResult result = new javax.xml.transform.stream.StreamResult(writer);
+      // Perform the transformation which writes the XML to the writer
+      transformer.transform(source, result);
+      // The original code uses newLine and flush, which are handled here
+      // to ensure the output is properly formatted and written.
+      writer.newLine();
+      writer.flush();
+    } catch (Exception e) {
+      // Handle exceptions related to transformation or configuration
+      e.printStackTrace();
+    }
+  }
+  catch (IOException e)
+  {
+    //TODO addError(MessageRepository.incorrectPath(extractFileName));
+  }
+  finally
+  {
+    try
+    {
+      if (writer != null)
+      {
+        writer.close();
+      }
+    }
+    catch (IOException e)
+    {
+      //TODO addError(MessageRepository.incorrectPath(extractFileName));
+    }
+  }
+  //writeXmlFileSummary() method END
+
+  //check if xsl is exist
+  String finalXslFilePath = null;
+  boolean useRemoteObjectStorage = com.splwg.ccb.domain.util.CommonGenericMethod.fetchObjectStorageUsageFeatureConfig("C1-CFS", "CFS");
+  String xslPath = com.splwg.ccb.domain.util.CommonGenericMethod.getFeatureConfigValue("C1-REPORTVW","RPXS");
+  finalXslFilePath = cmCommon.transformFilepath( xslPath + "/" + getXslFileName(), useRemoteObjectStorage);
+  logger.info("finalXslFilePath: " + finalXslFilePath);
+    
+  com.splwg.base.api.file.adapter.FileInstance fileInstanceForXSL = null;
+  fileInstanceForXSL = com.splwg.base.api.file.adapter.FileAccessHelper.getFileInstance(finalXslFilePath);
+  if (!fileInstanceForXSL.exists()) {
+    logger.info("XSL File not found logger: " + finalXslFilePath);
+    addError(90000, 6013, finalXslFilePath);
+  }
+  
+
+  //createInvoiceExtractPdfUsingXML() method START
+  String pdf = "";
+  try
+  {
+    Bill bill=new Bill_Id(billId).getEntity();
+
+    //dates
+    def inputDateTime = getSystemDateTime().toString();
+    def inputFormat = new java.text.SimpleDateFormat("yyyy-MM-dd-hh.mm.ss");
+    def date = inputFormat.parse(inputDateTime);
+
+    def outputDateFormat = new java.text.SimpleDateFormat("yyyyMMdd");
+  def outputDateTimeFormat = new java.text.SimpleDateFormat("yyyyMMddhhmmss");
+
+  outputDateFormat.setTimeZone(java.util.TimeZone.getTimeZone("America/Chicago"));
+  outputDateTimeFormat.setTimeZone(java.util.TimeZone.getTimeZone("America/Chicago"));
+
+  def cstDate = outputDateFormat.format(date);
+  def cstDateTime = outputDateTimeFormat.format(date);
+
+  logger.info("CST Date: " + cstDate + ", CST Date Time: " + cstDateTime);
+
+   String defaultCoalitionId = getDefaultCoalitionId();
+    String coalitionId = cmCommon.fetchCoalitionId(parentPerId.getTrimmedValue(), defaultCoalitionId);
+
+    String fileFormatType = getFileFormatType();
+    String businessObject = getFileNamingBo();
+    String env = getEnvironment(); //TEST or PROD
+
+    SQLResultRow billLevels = getCarrierAndAccountForBg(bgPerId.getTrimmedValue());
+    if(!isNull(billLevels)){
+      CARRIERID = checkStringNull(billLevels.getString("CARRIER")).trim();
+      ACCOUNTID = checkStringNull(billLevels.getString("ACCOUNTID")).trim();
+      GROUPID = checkStringNull(billLevels.getString("GROUPID")).trim();
+    }
+
+    logger.info("COALITION ID: " + coalitionId);
+
+    //Fetch filepath and filename
+    String finalOutputFilePath = null;
+
+    logger.info("useRemoteObjectStorage:  "+useRemoteObjectStorage);
+
+    //Fetch filepath and filename
+    String[] config = cmCommon.fetchFileNameConfig(businessObject, coalitionId, defaultCoalitionId, fileFormatType);
+
+    logger.info("File Path: " + config[0]);
+    logger.info("File Format: " + config[1]);
+
+    String filePath = config[0];
+    //PT-579 - START
+    String lob = cmCommon.getLob(CARRIERID);
+    
+    //PT-617 Start
+    if(coalitionId.equalsIgnoreCase(emblemHealthCoalitionId)){
+      String firstSix = CARRIERID.length() >= 6 ? CARRIERID.substring(0, 6) : CARRIERID;
+      pdf = cmCommon.generateFilename(config[1], firstSix, lob, env, ACCOUNTID, cstDate, cstDateTime);
+    } else {
+      pdf = cmCommon.generateFilename(config[1], CARRIERID, lob, env, ACCOUNTID, cstDate, cstDateTime);
+    }
+    //PT-579 - END
+    //String finalFilePath = getReportingDirPath(config[0]);
+    //PT-617 End
+
+    logger.info("Final Filename: " + pdf);
+
+    logger.info("filePath : "+ filePath);
+    finalOutputFilePath = cmCommon.transformFilepath(filePath.trim(),useRemoteObjectStorage);
+    logger.info("Expected PDF location: " + finalOutputFilePath + "/" + pdf);
+    logger.info("Resolved file path: " + new File(finalOutputFilePath, pdf).getAbsolutePath()); 
+
+    javax.xml.transform.TransformerFactory transformerFactory2 = javax.xml.transform.TransformerFactory.newInstance();
+    javax.xml.transform.Transformer transformer2 = transformerFactory2.newTransformer();
+    javax.xml.transform.dom.DOMSource source2 = new javax.xml.transform.dom.DOMSource(doc.getDocumentElement());
+    java.io.StringWriter writer2 = new StringWriter();
+    javax.xml.transform.stream.StreamResult result2 = new javax.xml.transform.stream.StreamResult(writer2);
+    transformer2.transform(source2, result2);
+    // Print the XML string
+    String xmlString = writer2.toString();
+
+    com.splwg.ccb.domain.reportsubmission.FOPReportGenerationComponent CMFOP = new com.splwg.ccb.domain.reportsubmission.FOPReportGenerationComponent.Factory().newInstance();
+    //CMFOP.generateReport(getXslFileName(), xmlString, pdf, finalOutputFilePath);
+
+
+    try {
+      CMFOP.generateReport(getXslFileName(), xmlString, pdf, finalOutputFilePath);
+      //CMFOP.generateReport(getXslFileName(), xmlString, pdf, "/u01/app/spl/DEV8000/splapp/reporting/output");
+      logger.info("PDF generation completed successfully.");
+    } catch (Exception e) {
+      logger.error("PDF generation failed: " + e.getMessage(), e);
+    }
+
+
+
+    //After generating the PDF, create the Outbound Message and stamp the Bill Characteristic
+    com.splwg.base.domain.outboundMessage.outboundMessageType.OutboundMessageType outboundMsgType = new com.splwg.base.domain.outboundMessage.outboundMessageType.OutboundMessageType_Id(getOutboundMsgType()).getEntity();
+
+    com.splwg.base.domain.workflow.notificationExternalId.NotificationExternalId_Id externalSystem = new com.splwg.base.domain.workflow.notificationExternalId.NotificationExternalId_Id(getExternalSystem());
+
+    com.splwg.base.domain.workflow.notificationExternalId.OutboundMessageProfile outboundMessageProfile = new com.splwg.base.domain.workflow.notificationExternalId.OutboundMessageProfile_Id(outboundMsgType, externalSystem.getEntity()).getEntity();
+
+    com.splwg.base.domain.batch.batchControl.BatchControl_Id batchControlId = outboundMessageProfile.getBatchControlId();
+    String batchCd = batchControlId.getTrimmedValue();
+    BigInteger batchNumber = batchControlId.getEntity().getNextBatchNumber();
+
+    String outMsgId = fetchOutBoundMessageId(bill.getId(), batchCd, batchNumber, getOutboundMsgType(), getExternalSystem())
+
+    if(isNull(outMsgId)){
+      //Add Bill Extract Outbound Message
+      outMsgId = createOutboundMsg(billId, xmlString);
+      addBillCharacteristic(bill.getId(), outMsgId);
+    } else {
+      //Update Bill Extract Outbound Message
+      com.splwg.base.domain.outboundMessage.outboundMessage.OutboundMessage_Id id  = new com.splwg.base.domain.outboundMessage.outboundMessage.OutboundMessage_Id(outMsgId);
+      com.splwg.base.domain.outboundMessage.outboundMessage.OutboundMessage outboundMessage = id.getEntity();
+      BusinessObject outBoundBo = outboundMessage.getType().getId().getEntity().getBusinessObject();
+      BusinessObjectInstance boInstance = BusinessObjectInstance.create(outBoundBo);
+      boInstance.set("outboundMessageId", outMsgId);
+      boInstance.set("xmlSource",xmlString);
+      boInstance = BusinessObjectDispatcher.update(boInstance);
+    }
+  }
+  catch(Exception ex)
+  {
+    ex.printStackTrace();
+  }
+
+  //createInvoiceExtractPdfUsingXML() method END
+
+}
+
+private void createInvoiceExtractDocument(String DOLLAR, Account account, Person_Id bgPerId, Person_Id parentPerId, String industry) {
+  
+  BusinessObject cmMarketsExtLookupBo = new BusinessObject_Id("CM-MarketsExtLookup").getEntity();
+  BusinessObjectInstance boInstance2 = BusinessObjectInstance.create(cmMarketsExtLookupBo);
+  boInstance2.set("bo", cmMarketsExtLookupBo);
+  boInstance2.set("lookupValue", industry);
+
+  boInstance2 = BusinessObjectDispatcher.read(boInstance2, true);
+
+  String logo = "";
+  String primeAddress1 = "";
+  String primeAddress2 = "";
+  String primeAddress3 = "";
+  String primeEmail = "";
+  String remitAddress = "";
+  String wireToDetail1 = "";
+  String wireToDetail2 = "";
+  String wireToDetail3 = "";
+  String reference = "";
+  String primeContactEmail = ""
+  String footer = "";
+
+  if (!isNull(boInstance2)) {
+
+    COTSInstanceNode extendedData = boInstance2.getGroup("extendedData");
+    logo = extendedData.getString(LOGO_CD);
+    primeAddress1 = extendedData.getString(PRIME_ADDRESS_1);
+    primeAddress2 = extendedData.getString(PRIME_ADDRESS_2);
+    primeAddress3 = extendedData.getString(PRIME_ADDRESS_3);
+    primeEmail = extendedData.getString(PRIME_EMAIL);
+    remitAddress = extendedData.getString(REMIT_ADDRESS);
+    wireToDetail1 = extendedData.getString(WIRE_TO_DETAIL_1);
+    wireToDetail2 = extendedData.getString(WIRE_TO_DETAIL_2);
+    wireToDetail3 = extendedData.getString(WIRE_TO_DETAIL_3);
+    reference = extendedData.getString(REFERENCE);
+    primeContactEmail = extendedData.getString(PRIME_CONTACT_EMAIL);
+    footer = extendedData.getString(FOOTER);
+    
+  }
+  
+  Element invoiceDataGroup = doc.createElement(INVOICE_DATA);
+  doc.appendChild(invoiceDataGroup);
+
+  //String logoFile = getValueFromExtendableLookup(LOGO_CD);
+  Element logoElem = doc.createElement(LOGO_CD);
+  logoElem.setTextContent(logo);
+  invoiceDataGroup.appendChild(logoElem);
+  
+  Element tableHeaderElem = doc.createElement(TABLE_HEADER_ELEMENT);
+  String tableHeaderValue = ANCILLARY_HEADER;
+  
+  if(hasAdhocBillableCharges(bill.getId().getTrimmedValue())){
+      tableHeaderValue = CREDIT_MEMO_HEADER;
+  }
+  tableHeaderElem.setTextContent(tableHeaderValue);
+  invoiceDataGroup.appendChild(tableHeaderElem);
+
+  Element primeInfo = doc.createElement(PRIME_INFO);
+  invoiceDataGroup.appendChild(primeInfo);
+
+  Element primeAddress = doc.createElement(PRIME_ADDRESS);
+  primeInfo.appendChild(primeAddress);
+
+  //String primeAddress1 = getValueFromExtendableLookup(PRIME_ADDRESS_1);
+  Element primeAddress1Elem = doc.createElement(ADDRESS1);
+  primeAddress1Elem.setTextContent(primeAddress1);
+  primeAddress.appendChild(primeAddress1Elem);
+
+  //String primeAddress2 = getValueFromExtendableLookup(PRIME_ADDRESS_2);
+  Element primeAddress2Elem = doc.createElement(ADDRESS2);
+  primeAddress2Elem.setTextContent(primeAddress2);
+  primeAddress.appendChild(primeAddress2Elem);
+
+  //String primeAddress3 = getValueFromExtendableLookup(PRIME_ADDRESS_3);
+  Element primeAddress3Elem = doc.createElement(ADDRESS3);
+  primeAddress3Elem.setTextContent(primeAddress3);
+  primeAddress.appendChild(primeAddress3Elem);
+
+  //String primeEmailId = getValueFromExtendableLookup(PRIME_EMAIL);
+  Element emailIdElem = doc.createElement(EMAIL_ID);
+  emailIdElem.setTextContent(primeEmail);
+  primeInfo.appendChild(emailIdElem);
+
+  Element billToInfo = doc.createElement(BILL_TO_INFO);
+  invoiceDataGroup.appendChild(billToInfo);
+
+  Element customerAddress = doc.createElement(CUSTOMER_ADDRESS);
+  billToInfo.appendChild(customerAddress);
+
+
+  String billToAddress1 = null;
+  String billToAddress2 = null;
+  String billToCity = null;
+  String billToState = null;
+  String billToZip = null;
+
+  Person parentPerson = parentPerId.getEntity();
+  SQLResultRow bgPersonAddress = getAddress(bgPerId);
+  if(!isNull(bgPersonAddress)){
+    billToAddress1 = checkStringNull(bgPersonAddress.getString("ADDRESS1"));
+    billToAddress2 = checkStringNull(bgPersonAddress.getString("ADDRESS2"));
+    billToCity = checkStringNull(bgPersonAddress.getString("CITY"));
+    billToState = checkStringNull(bgPersonAddress.getString("STATE"));
+    billToZip = checkStringNull(bgPersonAddress.getString("POSTAL"));
+  } else {      
+    //TODO Get the Address Details from C1_ADDRESS_ENTITY
+    SQLResultRow addressRow = getAddress(parentPerId);
+    billToAddress1 = checkStringNull(addressRow.getString("ADDRESS1"));
+    billToAddress2 = checkStringNull(addressRow.getString("ADDRESS2"));
+    billToCity = checkStringNull(addressRow.getString("CITY"));
+    billToState = checkStringNull(addressRow.getString("STATE"));
+    billToZip = checkStringNull(addressRow.getString("POSTAL"));
+  }
+
+
+  String customerAddress1 = null;
+
+  if(!isNull(bgPerId.getEntity().getEffectiveCharacteristic(getBillToCharType()))){
+    PersonCharacteristic perCharType = bgPerId.getEntity().getEffectiveCharacteristic(getBillToCharType());
+    if(!isEmptyOrNull(perCharType.getAdhocCharacteristicValue())){
+      customerAddress1 = perCharType.getAdhocCharacteristicValue();
+    }
+  } else {
+    customerAddress1 = parentPerson.getPersonPrimaryName();
+  }
+  Element customerAddress1Elem = doc.createElement(ADDRESS1);
+  customerAddress1Elem.setTextContent(customerAddress1);
+  customerAddress.appendChild(customerAddress1Elem);
+
+  String billLevel = deriveBillLevel(bgPerId);
+  String billLevelValue = deriveBillLevelValue(billLevel, bgPerId);
+  String customerAddress2 = billLevel + ": " + checkStringNull(billLevelValue.trim());
+  Element customerAddress2Elem = doc.createElement(ADDRESS2);
+  customerAddress2Elem.setTextContent(customerAddress2.trim());
+  customerAddress.appendChild(customerAddress2Elem);
+
+  String customerAddress3 = billToAddress1 + (!isEmptyOrNull(billToAddress2)?(" " + billToAddress2):"");
+  Element customerAddress3Elem = doc.createElement(ADDRESS3);
+  customerAddress3Elem.setTextContent(customerAddress3);
+  customerAddress.appendChild(customerAddress3Elem);
+
+  String customerAddress4 = billToCity  + (!isEmptyOrNull(billToState)?(", " + billToState.trim()):"") + (!isEmptyOrNull(billToZip)?(" " + billToZip.trim()):"");
+  Element customerAddress4Elem = doc.createElement(ADDRESS4);
+  customerAddress4Elem.setTextContent(customerAddress4);
+  customerAddress.appendChild(customerAddress4Elem);
+
+
+  DateFormat df = new DateFormat("MMMM dd, yyyy");
+  Element invoiceDate = doc.createElement(INVOICE_DATE);
+  invoiceDate.setTextContent(df.format(bill.getBillDate()));
+  invoiceDataGroup.appendChild(invoiceDate);
+
+  Element billingPeriod = doc.createElement(BILLLING_PERIOD);
+  billingPeriod.setTextContent(getBillingPeriod(bill.getId()));
+  invoiceDataGroup.appendChild(billingPeriod);
+
+  Element custId = doc.createElement(CUST_ID);
+  custId.setTextContent(getPrimaryId(parentPerId));
+  invoiceDataGroup.appendChild(custId);
+
+  Element invoiceNum = doc.createElement(INVOICE_NUM);
+  invoiceNum.setTextContent(bill.getSeqBillNumber().trim());
+  invoiceDataGroup.appendChild(invoiceNum);
+
+  Element paymentTerms = doc.createElement(PAYMENT_TERMS);
+  paymentTerms.setTextContent("Net " + getAccountCharacteristicTypeValue(account, getPaymentTermsCharacteristicType().getId().getTrimmedValue()) + " days");
+  invoiceDataGroup.appendChild(paymentTerms);
+
+  Element dueDate = doc.createElement(DUE_DATE);
+  dueDate.setTextContent(df.format(bill.getDueDate()));
+  invoiceDataGroup.appendChild(dueDate);
+
+  Element poNum = doc.createElement(PO_NUM);
+  
+  //PT-616 Start
+  String poNumValue = getPersonCharacteristicTypeValue(bgPerId.getEntity(), getPoNumCharTypeCd().getId().getTrimmedValue()).trim();
+  logger.info("Bill Group: " + bgPerId.getEntity());
+  logger.info("poNumValue: " + poNumValue);
+  
+  if(poNumValue == null || poNumValue.isEmpty()){
+    logger.info("Parent Person: " + parentPerson);
+    logger.info("poNumValue: " + poNumValue);
+    poNumValue = getPersonCharacteristicTypeValue(parentPerson, getPoNumCharTypeCd().getId().getTrimmedValue()).trim();
+  }
+  poNum.setTextContent(poNumValue);
+  invoiceDataGroup.appendChild(poNum);
+  //PT-616 End
+  
+  Element ancillaryDetails = doc.createElement(ANCILLARY_DETAILS);
+  Element ancillaryCost = doc.createElement(ANCILLARY_COST);
+  invoiceDataGroup.appendChild(ancillaryDetails);
+  ancillaryDetails.appendChild(ancillaryCost);
+  BigDecimal invAmt = BigDecimal.ZERO;
+
+  Element invoiceTotal = doc.createElement(INVOICE_TOTAL);
+
+  List<SQLResultRow> ancillaryCostEntryPerBillLine = getAncillaryCostEntryList(bill.getId());
+
+  if (ancillaryCostEntryPerBillLine != null && !ancillaryCostEntryPerBillLine.isEmpty()) {
+
+    for (SQLResultRow row : ancillaryCostEntryPerBillLine) {
+      
+      String itemCd = row.getString("ITEM");
+      String rate = row.getString("RATE");
+      //For Billable Charge with Charge Line, rate is set to asterisk (*), don't convert to BigDecimal
+      if(!isNull(rate) && !("*".equals(rate))) {
+        BigDecimal rateVal = new BigDecimal(rate).setScale(5, RoundingMode.DOWN)
+        rate = rateVal.stripTrailingZeros().scale() <= 2 ? rateVal.setScale(2, RoundingMode.DOWN).toPlainString() : rateVal.stripTrailingZeros().toPlainString();
+        //rate = String.format("%,.2f", new BigDecimal(rate))
+      }
+      String quantity = row.getString("QTY");
+      //PT-634 Start
+      if(!isNull(quantity)){
+        if(hasNonZeroDecimal(quantity).isTrue()){
+          quantity = String.format("%,.2f", new BigDecimal(quantity).doubleValue());
+        }else{
+          quantity = String.format("%,d", Integer.parseInt(quantity));
+        }
+      }
+      //PT-634 End
+      BigDecimal amount = row.getBigDecimal("AMT");
+
+      String pritm = itemCd.split("-")[0].trim();
+
+      Element ancillaryCostEntry = doc.createElement(ANCILLARY_COST_ENTRY);
+      Element item = doc.createElement(ITEM);
+      Element ref_id = doc.createElement(REF_ID);
+      Element qty = doc.createElement(QUANTITY);
+      Element rateElement = doc.createElement(RATE);
+      Element amt = doc.createElement(AMOUNT);
+
+
+      item.setTextContent(itemCd);
+      ref_id.setTextContent(getReferenceId(pritm));
+      qty.setTextContent(quantity);
+      //PT-447 Start
+      //rateElement.setTextContent(DOLLAR+rate.toString());
+      rateElement.setTextContent(rate);
+      //amt.setTextContent(DOLLAR+String.format("%,.2f", amount.doubleValue()).toString());
+      amt.setTextContent(""+String.format("%,.2f", amount.doubleValue()).toString());
+      //PT-447 End
+
+
+      ancillaryCostEntry.appendChild(item);
+      ancillaryCostEntry.appendChild(ref_id);
+      ancillaryCostEntry.appendChild(qty);
+      ancillaryCostEntry.appendChild(rateElement);
+      ancillaryCostEntry.appendChild(amt);
+      ancillaryCost.appendChild(ancillaryCostEntry);
+
+      invAmt = invAmt.add(amount);
+    }
+
+    invoiceTotal.setTextContent(DOLLAR+String.format("%,.2f", invAmt.doubleValue()).toString());
+    ancillaryDetails.appendChild(invoiceTotal);
+  }
+  ancillaryDetails.appendChild(invoiceTotal);
+
+  Element invoiceDetails = doc.createElement(INVOICE_DETAILS);
+
+  List<SQLResultRow> chargeDescDtlPerBillLine = getChargeDescDtlList(bill.getId(), billLevel, billLevelValue, bgPerId);
+
+  Map<String, Element> PritmElementMap = new HashMap<String, Element>();
+  Map<String, String> PritmQtyAmtMap = new HashMap<String, String>();
+
+  if (chargeDescDtlPerBillLine != null && !chargeDescDtlPerBillLine.isEmpty()) {
+
+    for (SQLResultRow row : chargeDescDtlPerBillLine) {
+      logger.info("SQL ROW: "+row);
+      String itemCd = row.getString("ITEM");
+      String carrier = row.getString("LVLENTITY");
+      String carrierName = row.getString("NAME");
+      String notes = row.getString("NOTES");
+      BigDecimal quantity = row.getBigDecimal("QTY");
+
+      if(!isNull(carrierName)){
+        carrier = carrier + " - " + carrierName;
+      }
+      
+      String rate = row.getString("RATE");
+      if(!isNull(rate)) {
+        BigDecimal rateVal = new BigDecimal(rate).setScale(5, RoundingMode.DOWN)
+        rate = rateVal.stripTrailingZeros().scale() <= 2 ? rateVal.setScale(2, RoundingMode.DOWN).toPlainString() : rateVal.stripTrailingZeros().toPlainString();
+      }
+      BigDecimal amount = row.getBigDecimal("AMT");
+      DateFormat df1 = new DateFormat("MMM-yy");
+      Date endDt = row.getDate("END_DT");
+      String formattedEndDt = df1.format(endDt);
+
+      Element rateDescriptionGroup = null;
+      Element chargeDescriptionDetails = null;
+      Element totalItemQuantity = null;
+      Element totalItemAmount = null;
+      String pritm = itemCd.split("-")[0].trim();
+      //Map will have the elements reference for each unique Priceitem code, if not found create new reference
+      if(PritmElementMap.containsKey(pritm)) {
+        chargeDescriptionDetails = PritmElementMap.get(pritm);
+        rateDescriptionGroup = (Element) chargeDescriptionDetails.getElementsByTagName(RATE_DESC_GROUP).item(0);
+        totalItemQuantity = (Element) chargeDescriptionDetails.getElementsByTagName(TOTAL_ITEM_QUANTITY).item(0);
+        totalItemAmount = (Element) chargeDescriptionDetails.getElementsByTagName(TOTAL_ITEM_AMOUNT).item(0);
+      }else {
+        chargeDescriptionDetails = doc.createElement(CHARGE_DESC_DETAILS);   
+        Element name = doc.createElement(NAME);
+        name.setTextContent(itemCd);  
+        Element invRefId = doc.createElement(REF_ID);
+        invRefId.setTextContent(getReferenceId(pritm));
+        totalItemQuantity = doc.createElement(TOTAL_ITEM_QUANTITY);
+        totalItemAmount = doc.createElement(TOTAL_ITEM_AMOUNT);
+
+        rateDescriptionGroup = doc.createElement(RATE_DESC_GROUP);
+
+        chargeDescriptionDetails.appendChild(name);
+        chargeDescriptionDetails.appendChild(invRefId);
+        chargeDescriptionDetails.appendChild(rateDescriptionGroup);
+        chargeDescriptionDetails.appendChild(totalItemQuantity);
+        chargeDescriptionDetails.appendChild(totalItemAmount);
+
+        invoiceDetails.appendChild(chargeDescriptionDetails);
+
+        PritmElementMap.put(pritm, chargeDescriptionDetails);
+      }
+
+      Element rateDescription = doc.createElement(RATE_DESCRIPTION);
+      Element carrierIdName = doc.createElement(CARRIER_ID_NAME);
+      Element invNotes =  doc.createElement(NOTES);
+      Element servicePeriod =  doc.createElement(SERVICE_PERIOD);
+      Element invQuantity = doc.createElement(QUANTITY);
+      Element invRate = doc.createElement(RATE);
+      Element invAmount = doc.createElement(AMOUNT);
+
+      carrierIdName.setTextContent(carrier);
+      invNotes.setTextContent(notes);
+      servicePeriod.setTextContent(formattedEndDt);
+      
+      //PT-634 Start
+      String quantityStr = quantity.toString();
+      if(!isNull(quantityStr) || !quantityStr.isEmpty()){
+        if(hasNonZeroDecimal(quantityStr).isTrue()){
+          invQuantity.setTextContent(String.format("%,.2f", new BigDecimal(quantityStr).doubleValue()));
+        }else{
+          invQuantity.setTextContent(String.format("%,d", Integer.parseInt(quantityStr)));
+        }
+      }
+      //PT-634 End
+      
+      //invRate.setTextContent(DOLLAR+rate.toString());
+      //invAmount.setTextContent(DOLLAR+String.format("%,.2f", amount.doubleValue()).toString());
+      invRate.setTextContent(rate.toString());
+      invAmount.setTextContent(String.format("%,.2f", amount.doubleValue()).toString());
+
+      rateDescriptionGroup.appendChild(rateDescription);
+      rateDescription.appendChild(carrierIdName);
+      rateDescription.appendChild(invNotes);
+      rateDescription.appendChild(servicePeriod);
+      rateDescription.appendChild(invQuantity);
+      rateDescription.appendChild(invRate);
+      rateDescription.appendChild(invAmount);
+
+      String amtQty = null;
+      BigDecimal tempQuantity = quantity;
+      BigDecimal tempAmount = amount;
+
+      if(PritmQtyAmtMap.containsKey(pritm)) {
+        amtQty = PritmQtyAmtMap.get(pritm);
+        tempQuantity = new BigDecimal(amtQty.split(("\\|"))[1]);
+        tempAmount = new BigDecimal(amtQty.split(("\\|"))[0]);
+        tempQuantity = tempQuantity.add(quantity);
+        tempAmount = tempAmount.add(amount);
+        //PT-594 Start
+        amtQty = tempAmount.toString() + "|" + tempQuantity.toString(); 
+        //PT-594 End
+        PritmQtyAmtMap.put(pritm, amtQty);
+      }else {
+        amtQty = amount.toString() + "|" + quantity.toString(); 
+        PritmQtyAmtMap.put(pritm, amtQty);
+      }
+
+      //PT-634 Start
+      String tempQuantityStr = tempQuantity.toString();
+      if(!isNull(tempQuantityStr) || !tempQuantityStr.isEmpty()){
+        if(hasNonZeroDecimal(tempQuantityStr).isTrue()){
+          totalItemQuantity.setTextContent(String.format("%,.2f", new BigDecimal(tempQuantityStr).doubleValue()));
+        }else{
+          totalItemQuantity.setTextContent(String.format("%,d", Integer.parseInt(tempQuantityStr)));
+        }
+      }
+      //PT-634 End
+      
+      totalItemAmount.setTextContent(DOLLAR+String.format("%,.2f", tempAmount.doubleValue()).toString());
+    }
+
+
+  } 
+
+  invoiceDataGroup.appendChild(invoiceDetails);
+
+  Element remitAddressNode = doc.createElement(REMIT_ADDRESS);
+  remitAddressNode.setTextContent(remitAddress);
+  invoiceDataGroup.appendChild(remitAddressNode);
+
+  Element wireToDetails = doc.createElement(WIRE_TO_DETAILS);
+  invoiceDataGroup.appendChild(wireToDetails);
+
+  Element wireToInstructions = doc.createElement(INSTRUCTIONS);
+  wireToInstructions.setTextContent(wireToDetail1);
+  wireToDetails.appendChild(wireToInstructions);
+
+  Element wireToAccountName = doc.createElement(ACCOUNT_NAME);
+  wireToAccountName.setTextContent(wireToDetail2);
+  wireToDetails.appendChild(wireToAccountName);
+
+  Element wireToAccountNumber = doc.createElement(ACCOUNT_NUMBER);
+  wireToAccountNumber.setTextContent(wireToDetail3);
+  wireToDetails.appendChild(wireToAccountNumber);
+
+  Element referenceNode = doc.createElement(REFERENCE);
+  referenceNode.setTextContent(reference);
+  wireToDetails.appendChild(referenceNode);
+
+  Element footers = doc.createElement(FOOTERS);
+  invoiceDataGroup.appendChild(footers);
+
+  Element footer1 = doc.createElement(FOOTER_1);
+  footers.appendChild(footer1);
+
+  Element footer2 = doc.createElement(FOOTER_2);
+  String footerText = footer + " " + primeContactEmail;
+  footer2.setTextContent(footerText);
+  footers.appendChild(footer2);
+
+}
+
+private List<SQLResultRow> getAncillaryCostEntryList(Bill_Id billId) {
+  List<SQLResultRow> ancillaryCostEntryPerChannel = new ArrayList<SQLResultRow>();
+  PreparedStatementQuery preparedStatement = null;
+
+  
+  //PT-594 Start
+  /*
+  query.append(" SELECT TRIM(PI.PRICEITEM_CD) ||' - '|| TRIM(PI.DESCR) ITEM,NVL(SUM(SVC_QTY),0)QTY, LNCHAR.ADHOC_CHAR_VAL RATE, NVL(SUM(CALC_AMT) ,0) AMT ");
+  query.append(" FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG, CI_BCHG_SQ SQ,CI_PRICEITEM_L PI,CI_BSEG_CL_CHAR LNCHAR ");
+  query.append(" WHERE BSEG.BILL_ID = :BILL_ID AND  ");
+  query.append(" BSEG.BSEG_ID = CALC.BSEG_ID AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID ");
+  query.append(" AND CHG.BILLABLE_CHG_ID = SQ.BILLABLE_CHG_ID AND CHG.PRICEITEM_CD=PI.PRICEITEM_CD ");
+  query.append(" AND LNCHAR.BSEG_ID =BSEG.BSEG_ID ");
+  query.append(" AND LNCHAR.CHAR_TYPE_CD = 'RVALUECH' GROUP BY PI.PRICEITEM_CD,PI.DESCR,LNCHAR.ADHOC_CHAR_VAL ");
+  query.append(" UNION ALL ");
+  query.append(" SELECT TRIM(PI.PRICEITEM_CD) ||' - '|| TRIM(PI.DESCR) ITEM,1 AS QTY, TO_CHAR(NVL(SUM(CALC_AMT) ,0)) RATE,NVL(SUM(CALC_AMT) ,0) AMT ");
+  query.append(" FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG, CI_PRICEITEM_L PI ");
+  query.append(" WHERE BSEG.BILL_ID = :BILL_ID and BSEG.BSEG_ID = CALC.BSEG_ID ");
+  query.append(" AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID AND CHG.PRICEITEM_CD=PI.PRICEITEM_CD ");
+  query.append(" AND NOT EXISTS (SELECT 1 FROM CI_BCHG_SQ WHERE BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID) ");
+  query.append(" GROUP BY PI.PRICEITEM_CD,PI.DESCR ");
+  */
+  
+  StringBuilder query = new StringBuilder()
+  .append(" SELECT  TRIM(PRICEITEM_CD) ||' - '|| TRIM(DESCR) ITEM, QTY, RATE, AMT ")
+  .append(" FROM(SELECT PI.PRICEITEM_CD, PI.DESCR, NVL(SUM(SVC_QTY),0) QTY, LNCHAR.ADHOC_CHAR_VAL RATE, NVL(SUM(CALC_AMT) ,0) AMT ")
+  .append(" FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG, ")
+  .append(" CI_BCHG_SQ SQ,CI_PRICEITEM_L PI,CI_BSEG_CL_CHAR LNCHAR ")
+  .append(" WHERE BSEG.BILL_ID = :BILL_ID ")
+  .append(" and BSEG.BSEG_ID = CALC.BSEG_ID ")
+  .append(" AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID ")
+  .append(" AND CHG.BILLABLE_CHG_ID = SQ.BILLABLE_CHG_ID ")
+  .append(" AND CHG.PRICEITEM_CD=PI.PRICEITEM_CD ")
+  // Perf Update - Start Add
+  .append(" AND PI.LANGUAGE_CD = :LANGUAGE ")
+  // Perf Update - End Add
+  .append(" AND LNCHAR.BSEG_ID =BSEG.BSEG_ID ")
+  .append(" AND LNCHAR.CHAR_TYPE_CD = 'RVALUECH' ")
+  .append(" GROUP BY PI.PRICEITEM_CD,PI.DESCR,LNCHAR.ADHOC_CHAR_VAL ")
+  .append(" UNION ALL ")
+  .append(" SELECT PRICEITEM_CD, DESCR,SUM(QTY)QTY, RATE, SUM(TXN_AMT)AMT ")
+  .append(" FROM( ")
+  .append(" SELECT PI.PRICEITEM_CD, PI.DESCR, 1 AS QTY, '*' RATE,TXN.TXN_AMT ")
+  .append(" FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG, CI_PRICEITEM_L PI, CI_TXN_DTL_PRITM PRITM,  ")
+  .append(" CI_TXN_DETAIL TXN ")
+  .append(" WHERE ")
+  .append(" BSEG.BILL_ID = :BILL_ID ")
+  .append(" and BSEG.BSEG_ID = CALC.BSEG_ID AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID ")
+  .append(" AND CHG.PRICEITEM_CD = PI.PRICEITEM_CD  ")
+  .append(" AND CHG.BILLABLE_CHG_ID = PRITM.BILLABLE_CHG_ID AND PRITM.TXN_DETAIL_ID = TXN.TXN_DETAIL_ID ")
+  // Perf Update - Start Add
+  .append(" AND PI.LANGUAGE_CD = :LANGUAGE ")
+  .append(" AND PRITM.CURR_SYS_PRCS_DT = TXN.CURR_SYS_PRCS_DT ")
+  // Perf Update - End Add
+  .append(" AND NOT EXISTS (SELECT 1 FROM CI_BCHG_SQ WHERE BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID) ")
+  .append(" UNION ALL ")
+  .append(" SELECT PI.PRICEITEM_CD, PI.DESCR, 1 AS QTY, ")
+  .append(" '*' RATE, BLINE.CHARGE_AMT AMT  ")
+  .append(" FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG, CI_PRICEITEM_L PI, CI_B_CHG_LINE BLINE ")
+  .append(" WHERE ")
+  .append(" BSEG.BILL_ID = :BILL_ID ")
+  .append(" and BSEG.BSEG_ID = CALC.BSEG_ID  ")
+  .append(" AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID ")
+  .append(" AND BLINE.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID ")
+  .append(" AND CHG.PRICEITEM_CD = PI.PRICEITEM_CD  ")
+  // Perf Update - Start Add
+  .append(" AND PI.LANGUAGE_CD = :LANGUAGE ")
+  // Perf Update - End Add
+  .append(" AND NOT EXISTS (SELECT 1 FROM CI_TXN_DTL_PRITM WHERE BILLABLE_CHG_ID =CHG.BILLABLE_CHG_ID) ")
+  .append(" AND NOT EXISTS (SELECT 1 FROM CI_BCHG_SQ WHERE BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID) ) ")
+  .append(" GROUP BY PRICEITEM_CD, DESCR, RATE) ");
+  
+  //PT-
+  try {
+    preparedStatement = createPreparedStatement(query.toString().toString(), " getAncillaryCostEntryList() query ");
+    preparedStatement.bindString("BILL_ID", billId.getTrimmedValue(), "BILL_ID");
+    // Perf Update - Start Add
+    preparedStatement.bindId("LANGUAGE", getActiveContextLanguage().getId());
+    // Perf Update - End Add
+    ancillaryCostEntryPerChannel = preparedStatement.list();
+  } finally {
+    if(!isNull(preparedStatement)) {
+      preparedStatement.close();
+      preparedStatement = null;
+    }
+  }
+
+  return ancillaryCostEntryPerChannel;
+}
+
+private String checkStringNull(String str) {
+  String returnVal = "";
+  if(str != null) {
+    returnVal = str;
+  }
+
+  return returnVal;
+}
+
+private SQLResultRow getAddress(Person_Id perId) {
+  StringBuilder sb = new StringBuilder();
+  PreparedStatementQuery preparedStatement = null;
+  SQLResultRow result = null;
+
+  sb.append("SELECT ADDRESS1, ADDRESS2, CITY, POSTAL, STATE ");
+  sb.append("FROM C1_ADDRESS ");
+  sb.append("WHERE ADDRESS_ID IN ( ");
+  sb.append("   SELECT ADDRESS_ID ");
+  sb.append("   FROM C1_ADDRESS_ENTITY ");
+  sb.append("   WHERE ENTITY_ID = :perId");
+  sb.append(") ");
+
+  try {
+    preparedStatement = createPreparedStatement(sb.toString().toString(), " getPrimaryId() query ");
+    preparedStatement.bindString("perId", perId.getTrimmedValue(), "ENTITY_ID");
+    result = preparedStatement.firstRow();
+  }
+  catch(Exception e) {
+    e.printStackTrace();
+  }
+  finally {
+    if(!isNull(preparedStatement)) {
+      preparedStatement.close();
+      preparedStatement = null;
+    }
+  }
+  return result;
+}
+
+//PT-453 START
+//private List<SQLResultRow> getChargeDescDtlList(Bill_Id billId) {
+private List<SQLResultRow> getChargeDescDtlList(Bill_Id billId, String billLevel, String billLevelValue, Person_Id bgPerId) {
+    
+  List<SQLResultRow> qtyDetailsPerChannel = new ArrayList<SQLResultRow>();
+  PreparedStatementQuery preparedStatement = null;
+    
+  //checking if bill level value has multiple value
+  String billLevelEntity = "";
+  if( billLevelValue.contains(",") ){
+    billLevelEntity = billLevelValue.split(",")[0];
+  }else{
+    billLevelEntity = billLevelValue;
+  }
+
+  StringBuilder query = new StringBuilder();
+  /*
+  query.append("  SELECT TRIM(PRICEITEM_CD) ||' - '|| TRIM(DESCR) ITEM, CHAR_TYPE_CD, LVLENTITY, NOTES, QTY, RATE, AMT, END_DT, ");
+  query.append("  CASE WHEN CHAR_TYPE_CD = :CARRIER THEN ( ");              
+  query.append("  SELECT BG_L1_IDENTIFIER_DESCR FROM C1_CAG_REF_DATA WHERE BG_L1_IDENTIFIER = LVLENTITY AND ROWNUM = 1) ");
+  query.append("  WHEN CHAR_TYPE_CD = :ACCOUNTID THEN (   ");
+  query.append("  SELECT BG_L2_IDENTIFIER_DESCR FROM C1_CAG_REF_DATA WHERE BG_L2_IDENTIFIER = LVLENTITY AND ROWNUM = 1)  ");
+  query.append("  WHEN CHAR_TYPE_CD = :GROUP THEN (   ");
+  query.append("  SELECT BG_L3_IDENTIFIER_DESCR FROM C1_CAG_REF_DATA WHERE BG_L3_IDENTIFIER = LVLENTITY AND ROWNUM = 1)    ");
+  query.append("  ELSE ' ' END AS NAME FROM (   ");
+  query.append("  SELECT PI.PRICEITEM_CD, PI.DESCR, BCHAR.ADHOC_CHAR_VAL LVLENTITY, TXN.UDF_CHAR_9 NOTES,    ");
+  query.append("  NVL (SUM(SVC_QTY), 0) QTY, LNCHAR.ADHOC_CHAR_VAL RATE, NVL(SUM(CALC_AMT), 0) AMT,    ");
+  query.append("  BSEG.END_DT, BCHAR.CHAR_TYPE_CD FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG,   ");
+  query.append("  CI_BILL_CHG_CHAR BCHAR, CI_BCHG_SQ SQ, CI_PRICEITEM_L PI, CI_BSEG_CL_CHAR LNCHAR, CI_TXN_DTL_PRITM PRITM, CI_TXN_DETAIL TXN    ");
+  query.append("  WHERE    ");
+  query.append("  BSEG.BILL_ID = :BILL_ID    "); 
+  query.append("  and BSEG.BSEG_ID = CALC.BSEG_ID AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID AND CHG.BILLABLE_CHG_ID = SQ.BILLABLE_CHG_ID      ");
+  query.append("  AND CHG.PRICEITEM_CD = PI.PRICEITEM_CD AND CHG.BILLABLE_CHG_ID = BCHAR.BILLABLE_CHG_ID     ");
+  query.append("  AND BCHAR.CHAR_TYPE_CD in (:CARRIER, :ACCOUNTID, :GROUP)     ");
+  query.append("  AND CHG.BILLABLE_CHG_ID = PRITM.BILLABLE_CHG_ID AND PRITM.TXN_DETAIL_ID = TXN.TXN_DETAIL_ID    ");
+  query.append("  AND LNCHAR.BSEG_ID = BSEG.BSEG_ID AND LNCHAR.CHAR_TYPE_CD = 'RVALUECH'     ");
+  query.append("  GROUP BY PI.PRICEITEM_CD, PI.DESCR, LNCHAR.ADHOC_CHAR_VAL, BCHAR.ADHOC_CHAR_VAL, TXN.UDF_CHAR_9, BSEG.END_DT, BCHAR.CHAR_TYPE_CD     ");
+  query.append("  UNION      ");
+  query.append("  SELECT PI.PRICEITEM_CD, PI.DESCR, BCHAR.ADHOC_CHAR_VAL LVLENTITY, TXN.UDF_CHAR_9 NOTES, 1 AS QTY,      ");
+  query.append("  TO_CHAR(NVL(SUM(CALC_AMT), 0)) RATE, NVL(SUM(CALC_AMT), 0) AMT,      ");
+  query.append("  BSEG.END_DT, BCHAR.CHAR_TYPE_CD                                ");                              
+  query.append("  FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG, CI_BILL_CHG_CHAR BCHAR, CI_PRICEITEM_L PI, CI_TXN_DTL_PRITM PRITM, CI_TXN_DETAIL TXN   ");
+  query.append("  WHERE      ");
+  query.append("  BSEG.BILL_ID = :BILL_ID      ");
+  query.append("  and BSEG.BSEG_ID = CALC.BSEG_ID AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID     ");
+  query.append("  AND CHG.PRICEITEM_CD = PI.PRICEITEM_CD AND CHG.BILLABLE_CHG_ID = BCHAR.BILLABLE_CHG_ID     ");
+  query.append("  AND BCHAR.CHAR_TYPE_CD in (:CARRIER, :ACCOUNTID, :GROUP)     ");
+  query.append("  AND CHG.BILLABLE_CHG_ID = PRITM.BILLABLE_CHG_ID AND PRITM.TXN_DETAIL_ID = TXN.TXN_DETAIL_ID      ");
+  query.append("  AND NOT EXISTS (SELECT 1 FROM CI_BCHG_SQ WHERE BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID)      ");
+  query.append("  GROUP BY PI.PRICEITEM_CD, PI.DESCR, BCHAR.ADHOC_CHAR_VAL, TXN.UDF_CHAR_9, BSEG.END_DT, BCHAR.CHAR_TYPE_CD)     ");
+  */
+  if(billLevel == "CARRIER"){
+  
+    query.append("  SELECT TRIM(PRICEITEM_CD) ||' - '|| TRIM(DESCR) ITEM, :LVL, LVLENTITY, NOTES, QTY, RATE, AMT, END_DT, ");
+    // Perf Update - Start Update
+    //query.append("  (SELECT BG_L1_IDENTIFIER_DESCR FROM C1_CAG_REF_DATA WHERE TRIM(BG_L1_IDENTIFIER) = LVLENTITY AND ROWNUM = 1) ");
+    query.append("  (SELECT BG_L1_IDENTIFIER_DESCR FROM C1_CAG_REF_DATA WHERE BG_L1_IDENTIFIER = RPAD(LVLENTITY, 60) AND ROWNUM = 1) ");
+    // Perf Update - End Update
+    query.append("  AS NAME FROM ( ");
+    query.append("  SELECT PRICEITEM_CD, DESCR, LVLENTITY, NOTES, SUM(QTY)QTY, RATE,SUM(AMT)AMT,END_DT   ");
+    query.append("  FROM( ");
+    query.append("  SELECT PI.PRICEITEM_CD, PI.DESCR, BCHAR.ADHOC_CHAR_VAL LVLENTITY,TXN.UDF_CHAR_9 NOTES,    ");
+    query.append("  TXN.TXN_VOL QTY, LNCHAR.ADHOC_CHAR_VAL RATE, ROUND ((TXN.TXN_VOL * LNCHAR.ADHOC_CHAR_VAL),2) AMT,    ");
+    query.append("  BSEG.END_DT FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG,   ");
+    query.append("  CI_BILL_CHG_CHAR BCHAR, CI_PRICEITEM_L PI, CI_BSEG_CL_CHAR LNCHAR, CI_TXN_DTL_PRITM PRITM, CI_TXN_DETAIL TXN     ");
+    query.append("  WHERE    ");
+    query.append("  BSEG.BILL_ID = :BILL_ID       ");
+    query.append("  and BSEG.BSEG_ID = CALC.BSEG_ID ");
+    query.append("  AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID       ");
+    query.append("  AND CHG.PRICEITEM_CD = PI.PRICEITEM_CD ");
+    query.append("  AND CHG.BILLABLE_CHG_ID = BCHAR.BILLABLE_CHG_ID          ");
+    query.append("  AND BCHAR.CHAR_TYPE_CD = 'CM-CARR'       ");
+    query.append("  AND CHG.BILLABLE_CHG_ID = PRITM.BILLABLE_CHG_ID AND PRITM.TXN_DETAIL_ID = TXN.TXN_DETAIL_ID   ");   
+    // Perf Update - Start Add
+    query.append("  AND PI.LANGUAGE_CD = :LANGUAGE ");
+    query.append("  AND PRITM.CURR_SYS_PRCS_DT = TXN.CURR_SYS_PRCS_DT ");
+    // Perf Update - End Add
+    query.append("  AND LNCHAR.BSEG_ID = BSEG.BSEG_ID AND LNCHAR.CHAR_TYPE_CD = 'RVALUECH'  ");
+    query.append("  UNION ALL ");
+    query.append("  SELECT PI.PRICEITEM_CD, PI.DESCR, :LVLENTITY LVLENTITY, ");
+    query.append("  (SELECT ADHOC_CHAR_VAL FROM CI_BILL_CHG_CHAR WHERE CHAR_TYPE_CD = 'CMNOTES' ");
+    query.append("  AND BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID) NOTES, ");
+    query.append("  CALCLN.BILL_SQ QTY, LNCHAR.ADHOC_CHAR_VAL RATE, ");
+    query.append("  ROUND((CALCLN.BILL_SQ * LNCHAR.ADHOC_CHAR_VAL), 2) AMT, ");
+    query.append("  BSEG.END_DT FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG, ");
+    query.append("  CI_BSEG_CALC_LN CALCLN, CI_PRICEITEM_L PI, CI_BSEG_CL_CHAR LNCHAR ");
+    query.append("  WHERE BSEG.BILL_ID = :BILL_ID ");
+    query.append("  AND BSEG.BSEG_ID = CALC.BSEG_ID ");
+    query.append("  AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID ");
+    query.append("  AND CALCLN.BSEG_ID = CALC.BSEG_ID ");
+    query.append("  AND CHG.PRICEITEM_CD = PI.PRICEITEM_CD ");
+    // Perf Update - Start Add
+    query.append("  AND PI.LANGUAGE_CD = :LANGUAGE ");
+    // Perf Update - End Add
+    query.append("  AND LNCHAR.BSEG_ID = BSEG.BSEG_ID ");
+    query.append("  AND LNCHAR.CHAR_TYPE_CD = 'RVALUECH' ");
+    query.append("  AND NOT EXISTS (SELECT 1 FROM CI_TXN_DTL_PRITM ");
+    query.append("  WHERE BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID) ");
+    query.append("  UNION ALL       ");
+    query.append("  SELECT PI.PRICEITEM_CD, PI.DESCR, BCHAR.ADHOC_CHAR_VAL LVLENTITY, TXN.UDF_CHAR_9 NOTES, 1 AS QTY,       "); 
+    query.append("  TO_CHAR(TXN.TXN_AMT) RATE,TXN.TXN_AMT AMT, BSEG.END_DT ");
+    query.append("  FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG, CI_BILL_CHG_CHAR BCHAR, ");
+    query.append("  CI_PRICEITEM_L PI, CI_TXN_DTL_PRITM PRITM, CI_TXN_DETAIL TXN    ");
+    query.append("  WHERE        ");
+    query.append("  BSEG.BILL_ID = :BILL_ID     ");     
+    query.append("  and BSEG.BSEG_ID = CALC.BSEG_ID AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID   ");    
+    query.append("  AND CHG.PRICEITEM_CD = PI.PRICEITEM_CD AND CHG.BILLABLE_CHG_ID = BCHAR.BILLABLE_CHG_ID       ");
+    query.append("  AND BCHAR.CHAR_TYPE_CD = 'CM-CARR' ");
+    query.append("  AND CHG.BILLABLE_CHG_ID = PRITM.BILLABLE_CHG_ID AND PRITM.TXN_DETAIL_ID = TXN.TXN_DETAIL_ID        ");  
+    // Perf Update - Start Add
+    query.append("  AND PI.LANGUAGE_CD = :LANGUAGE ");
+    query.append("  AND PRITM.CURR_SYS_PRCS_DT = TXN.CURR_SYS_PRCS_DT ");
+    // Perf Update - End Add
+    query.append("  AND NOT EXISTS (SELECT 1 FROM CI_BCHG_SQ WHERE BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID) ");
+    query.append("  UNION ALL ");
+    query.append("  SELECT PI.PRICEITEM_CD, PI.DESCR, BCHAR.ADHOC_CHAR_VAL LVLENTITY, ");
+    query.append("  (SELECT ADHOC_CHAR_VAL FROM CI_BILL_CHG_CHAR WHERE CHAR_TYPE_CD ='CMNOTES' AND BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID ) NOTES, 1 AS QTY, ");
+    query.append("  TO_CHAR(BLINE.CHARGE_AMT) RATE,BLINE.CHARGE_AMT AMT, BSEG.END_DT ");
+    query.append("  FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG, CI_PRICEITEM_L PI, ");
+    query.append("  CI_B_CHG_LINE BLINE,CI_BILL_CHG_CHAR BCHAR ");
+    query.append("  WHERE        ");
+    query.append("  BSEG.BILL_ID = :BILL_ID          ");
+    query.append("  and BSEG.BSEG_ID = CALC.BSEG_ID ");
+    query.append("  AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID      ");
+    query.append("  AND BLINE.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID     ");
+    query.append("  AND CHG.PRICEITEM_CD = PI.PRICEITEM_CD ");
+    // Perf Update - Start Add
+    query.append("  AND PI.LANGUAGE_CD = :LANGUAGE ");
+    // Perf Update - End Add
+    query.append("  AND CHG.BILLABLE_CHG_ID = BCHAR.BILLABLE_CHG_ID        ");  
+    query.append("  AND BCHAR.CHAR_TYPE_CD = 'CM-CARR' ");
+    query.append("  AND NOT EXISTS (SELECT 1 FROM CI_TXN_DTL_PRITM WHERE BILLABLE_CHG_ID =CHG.BILLABLE_CHG_ID) ");
+    query.append("  AND NOT EXISTS (SELECT 1 FROM CI_BCHG_SQ WHERE BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID) ) ");
+    query.append("  GROUP BY PRICEITEM_CD, DESCR, LVLENTITY, NOTES,RATE,END_DT) ");
+    query.append("  ORDER BY END_DT ");
+    
+    try {
+      preparedStatement = createPreparedStatement(query.toString().toString(), " getChargeDescDtlList() query ");
+
+      preparedStatement.bindId("BILL_ID", billId);
+      preparedStatement.bindString("LVL", billLevel, "LVL");
+      preparedStatement.bindString("LVLENTITY", billLevelEntity.trim(), "LVLENTITY");
+      // Perf Update - Start Add
+      preparedStatement.bindId("LANGUAGE", getActiveContextLanguage().getId());
+      // Perf Update - End Add
+       
+      qtyDetailsPerChannel = preparedStatement.list();
+       
+    } finally {
+        if(!isNull(preparedStatement)) {
+          preparedStatement.close();
+          preparedStatement = null;
+       }
+    }
+    
+  }else{
+    
+    SQLResultRow billLevels = getCarrierAndAccountForBg(bgPerId.getTrimmedValue());
+    if(!isNull(billLevels)){
+      CARRIERID = checkStringNull(billLevels.getString("CARRIER")).trim();
+      ACCOUNTID = checkStringNull(billLevels.getString("ACCOUNTID")).trim();
+      GROUPID = checkStringNull(billLevels.getString("GROUPID")).trim();
+    }
+    
+    query.append("  SELECT TRIM(PRICEITEM_CD) ||' - '|| TRIM(DESCR) ITEM, :LVL,LVLENTITY, NOTES, QTY, RATE, AMT, END_DT, ");
+    query.append("  CASE WHEN :LVL = 'ACCOUNT' THEN (       ");
+    // Perf Update - Start Update
+    //query.append("  SELECT BG_L2_IDENTIFIER_DESCR FROM C1_CAG_REF_DATA WHERE TRIM(BG_L1_IDENTIFIER) = TRIM(:carrierId) AND TRIM(BG_L2_IDENTIFIER) = LVLENTITY AND ROWNUM = 1)  ");
+    query.append("  SELECT BG_L2_IDENTIFIER_DESCR FROM C1_CAG_REF_DATA WHERE BG_L1_IDENTIFIER = RPAD(:carrierId, 60) AND BG_L2_IDENTIFIER = RPAD(LVLENTITY, 60) AND ROWNUM = 1)  ");
+    // Perf Update - End Update
+    query.append("  WHEN :LVL = 'GROUP' THEN (   ");
+    // Perf Update - Start Update
+    //query.append("  SELECT BG_L3_IDENTIFIER_DESCR FROM C1_CAG_REF_DATA WHERE TRIM(BG_L1_IDENTIFIER) = TRIM(:carrierId) AND TRIM(BG_L2_IDENTIFIER) = TRIM(:accountId) AND TRIM(BG_L3_IDENTIFIER) = LVLENTITY AND ROWNUM = 1)    ");
+    query.append("  SELECT BG_L3_IDENTIFIER_DESCR FROM C1_CAG_REF_DATA WHERE BG_L1_IDENTIFIER = RPAD(:carrierId, 60) AND BG_L2_IDENTIFIER = RPAD(:accountId, 60) AND BG_L3_IDENTIFIER = RPAD(LVLENTITY, 60) AND ROWNUM = 1)    ");
+    // Perf Update - End Update
+    query.append("  ELSE ' ' END AS NAME FROM (   ");
+    query.append("  SELECT PRICEITEM_CD, DESCR, LVLENTITY, NOTES, SUM(QTY)QTY, RATE,SUM(AMT)AMT,END_DT   ");
+    query.append("  FROM( ");
+    query.append("  SELECT TXN.TXN_DETAIL_ID,PI.PRICEITEM_CD, PI.DESCR, :LVLENTITY LVLENTITY, TXN.UDF_CHAR_9 NOTES,    ");
+    query.append("  TXN.TXN_VOL QTY, LNCHAR.ADHOC_CHAR_VAL RATE, ROUND ((TXN.TXN_VOL * LNCHAR.ADHOC_CHAR_VAL),2) AMT,    ");
+    query.append("  BSEG.END_DT FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG,   ");
+    query.append("  CI_PRICEITEM_L PI, CI_TXN_DTL_PRITM PRITM, CI_TXN_DETAIL TXN ,CI_BSEG_CL_CHAR LNCHAR     ");
+    query.append("  WHERE ");
+    query.append("  BSEG.BILL_ID = :BILL_ID  ");
+    query.append("  and BSEG.BSEG_ID = CALC.BSEG_ID AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID ");
+    query.append("  AND CHG.PRICEITEM_CD = PI.PRICEITEM_CD ");
+    query.append("  AND CHG.BILLABLE_CHG_ID = PRITM.BILLABLE_CHG_ID AND PRITM.TXN_DETAIL_ID = TXN.TXN_DETAIL_ID ");
+    // Perf Update - Start Add
+    query.append("  AND PI.LANGUAGE_CD = :LANGUAGE ");
+    query.append("  AND PRITM.CURR_SYS_PRCS_DT = TXN.CURR_SYS_PRCS_DT ");
+    // Perf Update - End Add
+    query.append("  AND LNCHAR.BSEG_ID = BSEG.BSEG_ID AND LNCHAR.CHAR_TYPE_CD = 'RVALUECH' ");
+    query.append("UNION ALL ");
+    query.append("  SELECT 1, PI.PRICEITEM_CD, PI.DESCR, :LVLENTITY LVLENTITY, ");
+    query.append("  (SELECT ADHOC_CHAR_VAL FROM CI_BILL_CHG_CHAR WHERE CHAR_TYPE_CD = 'CMNOTES' ");
+    query.append("  AND BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID) NOTES, ");
+    query.append("  CALCLN.BILL_SQ QTY, LNCHAR.ADHOC_CHAR_VAL RATE, ");
+    query.append("  ROUND((CALCLN.BILL_SQ * LNCHAR.ADHOC_CHAR_VAL), 2) AMT, ");
+    query.append("  BSEG.END_DT FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG, ");
+    query.append("  CI_BSEG_CALC_LN CALCLN, CI_PRICEITEM_L PI, CI_BSEG_CL_CHAR LNCHAR ");
+    query.append("  WHERE BSEG.BILL_ID = :BILL_ID ");
+    query.append("  AND BSEG.BSEG_ID = CALC.BSEG_ID ");
+    query.append("  AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID ");
+    query.append("  AND CALCLN.BSEG_ID = CALC.BSEG_ID ");
+    query.append("  AND CHG.PRICEITEM_CD = PI.PRICEITEM_CD ");
+    // Perf Update - Start Add
+    query.append("  AND PI.LANGUAGE_CD = :LANGUAGE ");
+    // Perf Update - End Add
+    query.append("  AND LNCHAR.BSEG_ID = BSEG.BSEG_ID ");
+    query.append("  AND LNCHAR.CHAR_TYPE_CD = 'RVALUECH' ");
+    query.append("  AND NOT EXISTS (SELECT 1 FROM CI_TXN_DTL_PRITM ");
+    query.append("  WHERE BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID) ");
+    query.append("  UNION ALL ");
+    query.append("  SELECT TXN.TXN_DETAIL_ID,PI.PRICEITEM_CD, PI.DESCR, :LVLENTITY LVLENTITY, TXN.UDF_CHAR_9 NOTES, 1 AS QTY, ");
+    query.append("  TO_CHAR(TXN.TXN_AMT) RATE,TXN.TXN_AMT AMT, ");
+    query.append("  BSEG.END_DT ");
+    query.append("  FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG, CI_PRICEITEM_L PI, CI_TXN_DTL_PRITM PRITM, ");
+    query.append("  CI_TXN_DETAIL TXN ");
+    query.append("  WHERE ");
+    query.append("  BSEG.BILL_ID = :BILL_ID ");
+    query.append("  and BSEG.BSEG_ID = CALC.BSEG_ID AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID  ");     
+    query.append("  AND CHG.PRICEITEM_CD = PI.PRICEITEM_CD ");
+    query.append("  AND CHG.BILLABLE_CHG_ID = PRITM.BILLABLE_CHG_ID AND PRITM.TXN_DETAIL_ID = TXN.TXN_DETAIL_ID ");
+    // Perf Update - Start Add
+    query.append("  AND PI.LANGUAGE_CD = :LANGUAGE ");
+    query.append("  AND PRITM.CURR_SYS_PRCS_DT = TXN.CURR_SYS_PRCS_DT ");
+    // Perf Update - End Add
+    query.append("  AND NOT EXISTS (SELECT 1 FROM CI_BCHG_SQ WHERE BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID) ");
+    query.append("  UNION ALL ");
+    query.append("  SELECT 1 AS TXN_DETAIL_ID,PI.PRICEITEM_CD, PI.DESCR, :LVLENTITY LVLENTITY, ");
+    query.append("  (SELECT ADHOC_CHAR_VAL FROM CI_BILL_CHG_CHAR WHERE CHAR_TYPE_CD ='CMNOTES' AND BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID ) NOTES,1 AS QTY, ");
+    query.append("  TO_CHAR(BLINE.CHARGE_AMT) RATE,BLINE.CHARGE_AMT AMT, ");
+    query.append("  BSEG.END_DT ");
+    query.append("  FROM CI_BSEG BSEG, CI_BSEG_CALC CALC, CI_BILL_CHG CHG, CI_PRICEITEM_L PI, CI_B_CHG_LINE BLINE ");
+    query.append("  WHERE ");
+    query.append("  BSEG.BILL_ID = :BILL_ID ");
+    query.append("  and BSEG.BSEG_ID = CALC.BSEG_ID ");
+    query.append("  AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID ");
+    query.append("  AND BLINE.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID ");
+    query.append("  AND CHG.PRICEITEM_CD = PI.PRICEITEM_CD ");
+    // Perf Update - Start Add
+    query.append("  AND PI.LANGUAGE_CD = :LANGUAGE ");
+    // Perf Update - End Add
+    query.append("  AND NOT EXISTS (SELECT 1 FROM CI_TXN_DTL_PRITM WHERE BILLABLE_CHG_ID =CHG.BILLABLE_CHG_ID) ");
+    query.append("  AND NOT EXISTS (SELECT 1 FROM CI_BCHG_SQ WHERE BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID) ) ");
+    query.append("  GROUP BY PRICEITEM_CD, DESCR, LVLENTITY, NOTES,RATE,END_DT) ");
+    query.append("  ORDER BY END_DT ");
+    
+     try {
+        preparedStatement = createPreparedStatement(query.toString().toString(), " getChargeDescDtlList() query ");
+
+        preparedStatement.bindId("BILL_ID", billId);
+        preparedStatement.bindString("LVL", billLevel, "LVL");
+        preparedStatement.bindString("LVLENTITY", billLevelEntity.trim(), "LVLENTITY");
+        preparedStatement.bindString("carrierId", CARRIERID.trim(), "BG_L1_IDENTIFIER");
+        preparedStatement.bindString("accountId", ACCOUNTID.trim(), "BG_L2_IDENTIFIER");
+        // Perf Update - Start Add
+        preparedStatement.bindId("LANGUAGE", getActiveContextLanguage().getId());
+        // Perf Update - End Add
+       
+        qtyDetailsPerChannel = preparedStatement.list();
+       
+      } finally {
+        if(!isNull(preparedStatement)) {
+          preparedStatement.close();
+          preparedStatement = null;
+        }
+      }
+  }
+
+ 
+
+  return qtyDetailsPerChannel;
+}
+//PT-453 END
+
+private String getPrimaryId(Person_Id perId) {
+  String primaryId = "";
+  StringBuilder sb = new StringBuilder();
+  PreparedStatementQuery preparedStatement = null;
+  SQLResultRow result;
+
+  sb.append("SELECT ");
+  sb.append("   PER_ID_NBR ");
+  sb.append("FROM ");
+  sb.append("   CI_PER_ID ");
+  sb.append("WHERE ");
+  sb.append("   PER_ID = :perId ");
+  sb.append("AND ");
+  sb.append("   PRIM_SW = 'Y' ");
+
+  try {
+    preparedStatement = createPreparedStatement(sb.toString().toString(), " getPrimaryId() query ");
+    preparedStatement.bindId("perId", perId);
+    result = preparedStatement.firstRow();
+
+    if(result != null) {
+      primaryId = result.getString("PER_ID_NBR");
+    }
+  }
+  catch(Exception e) {
+    e.printStackTrace();
+  }
+  finally {
+    if(!isNull(preparedStatement)) {
+      preparedStatement.close();
+      preparedStatement = null;
+    }
+  }
+  return primaryId;
+}
+
+private Person_Id getAccountPersonId(Account_Id accountId){
+  StringBuilder sb = new StringBuilder();
+  Person_Id perId = null;
+  PreparedStatementQuery preparedStatement = null;
+  SQLResultRow result;
+
+  sb.append("SELECT ");
+  sb.append("   PER_ID ");
+  sb.append("FROM ");
+  sb.append("   CI_ACCT_PER ");
+  sb.append("WHERE ");
+  sb.append("   MAIN_CUST_SW = :mainCustomer ");
+  sb.append("AND ");
+  sb.append("   ACCT_ID = :accountId ");
+
+  try {
+    preparedStatement = createPreparedStatement(sb.toString().toString(), " getAccountPersonId() query ");
+    preparedStatement.bindString("mainCustomer", MAIN_CUST_SW, "MAIN_CUST_SW");
+    preparedStatement.bindId("accountId", accountId);
+    result = preparedStatement.firstRow();
+
+    if(result != null) {
+      perId = new Person_Id(result.getString("PER_ID"));
+    }
+  }
+  catch(Exception e) {
+    e.printStackTrace();
+  }
+  finally {
+    if(!isNull(preparedStatement)) {
+      preparedStatement.close();
+      preparedStatement = null;
+    }
+  }
+  return perId;
+}
+
+private String getBillingPeriod(Bill_Id billId) {
+  String billingPeriod = "";
+
+  PreparedStatementQuery preparedStatement = null;
+
+  StringBuilder query = new StringBuilder();
+  query.append("SELECT ");
+  query.append("  TO_CHAR((SELECT MAX(START_DT) FROM CI_BSEG WHERE BILL_ID = :billId), 'MM/dd/YYYY') ");
+  query.append("  || ' - ' || ");
+  query.append("  TO_CHAR((SELECT MAX(END_DT) FROM CI_BSEG WHERE BILL_ID = :billId), 'MM/dd/YYYY') ");
+  query.append("  as BILL_PERIOD ");
+  query.append("FROM DUAL");
+
+  try {
+    preparedStatement = createPreparedStatement(query.toString().toString(), "");
+    preparedStatement.bindId("billId", billId);
+
+    SQLResultRow result=preparedStatement.firstRow();
+
+    if(result != null) {
+      billingPeriod = result.getString("BILL_PERIOD");
+    }
+  }
+  catch(Exception e) {
+    e.printStackTrace();
+  }
+  finally {
+    if(!isNull(preparedStatement)) {
+      preparedStatement.close();
+      preparedStatement = null;
+    }
+  }
+
+  return billingPeriod;
+}
+
+private Person_Id getParentPersonID(Person_Id personId) {
+  PreparedStatementQuery preparedStatement = null;
+  StringBuilder query = new StringBuilder();
+  Person_Id parentPerId = null;
+
+  query.append("SELECT  ");
+  query.append("    PERPER.PER_ID1 FROM CI_PER_PER PERPER  ");
+  query.append("WHERE ");
+  query.append("    PERPER.PER_ID2=:perId   ");
+  query.append("    AND PER_REL_TYPE_CD=:perRelTypeCd  ");
+
+  try {
+    preparedStatement = createPreparedStatement(query.toString().toString(), "");
+    preparedStatement.bindId("perId", personId);
+    preparedStatement.bindString("perRelTypeCd", getPersonRelationshipTypeCd(), "PER_REL_TYPE_CD");
+
+    SQLResultRow result=preparedStatement.firstRow();
+
+    if(result != null) {
+      parentPerId = new Person_Id(result.getString("PER_ID1"));
+    }
+  }
+  catch(Exception e) {
+    e.printStackTrace();
+  }
+  finally {
+    if(!isNull(preparedStatement)) {
+      preparedStatement.close();
+      preparedStatement = null;
+    }
+  }
+
+  return parentPerId;
+}
+
+private String deriveBillLevel(Person_Id personId) {
+  String billLevel = "";
+  PreparedStatementQuery preparedStatement = null;
+
+  StringBuilder query = new StringBuilder();
+  query.append("SELECT DISTINCT LVL FROM (");
+  query.append("SELECT billing_group_id, CASE WHEN ( bo_status_cd = 'ACTIVE' AND TRIM(bill_lvl_2) IS NOT NULL AND bill_lvl_3 IS NULL AND bill_lvl_4 IS NULL ) THEN 'CARRIER' ");
+  query.append("WHEN ( bo_status_cd = 'ACTIVE' AND TRIM(bill_lvl_2) IS NOT NULL AND bill_lvl_3 IS NOT NULL AND bill_lvl_4 IS NULL ) THEN 'ACCOUNT' ");
+  query.append("ELSE 'GROUP' END AS LVL FROM c1_bill_lvl WHERE billing_group_id = :bgid AND bill_lvl_1 = 'ANCIL' ) L ");
+
+  try {
+    preparedStatement = createPreparedStatement(query.toString().toString(), "");
+    preparedStatement.bindString("bgid", personId.getTrimmedValue(), "BILLING_GROUP_ID");
+
+    SQLResultRow result=preparedStatement.firstRow();
+
+    if(result != null) {
+      billLevel = result.getString("LVL");
+    }
+  }
+  catch(Exception e) {
+    e.printStackTrace();
+  }
+  finally {
+    if(!isNull(preparedStatement)) {
+      preparedStatement.close();
+      preparedStatement = null;
+    }
+  }
+
+  return billLevel;
+}
+
+private String deriveBillLevelValue(String billLevel, Person_Id personId) {
+  String billLevelValue = "";
+  PreparedStatementQuery preparedStatement = null;
+
+  StringBuilder query = new StringBuilder();
+  if(billLevel.equals("CARRIER")){
+    query.append("SELECT DISTINCT bill_lvl_2 as VAL FROM c1_bill_lvl WHERE bill_lvl_1 = 'ANCIL' AND billing_group_id = :bgid ");
+  }
+  else if(billLevel.equals("ACCOUNT")){
+    query.append("SELECT DISTINCT bill_lvl_3 as VAL FROM c1_bill_lvl WHERE bill_lvl_1 = 'ANCIL' AND billing_group_id = :bgid  ");
+  }
+  else if(billLevel.equals("GROUP")){
+    query.append("SELECT DISTINCT bill_lvl_4 as VAL FROM c1_bill_lvl WHERE bill_lvl_1 = 'ANCIL' AND billing_group_id = :bgid ");
+  }
+
+
+  try {
+    preparedStatement = createPreparedStatement(query.toString().toString(), "");
+    preparedStatement.bindString("bgid", personId.getTrimmedValue(), "BILLING_GROUP_ID");
+
+    List<SQLResultRow> results=preparedStatement.list();
+
+    if(results != null) {
+      int index = 0;
+      for(SQLResultRow row : results){
+        String val = row.getString("VAL");
+        if(val != null){
+          billLevelValue += val;
+          index++;
+          if(index < results.size()){
+            billLevelValue += ", ";
+          }
+        }
+      }
+    }
+  }
+  catch(Exception e) {
+    e.printStackTrace();
+  }
+  finally {
+    if(!isNull(preparedStatement)) {
+      preparedStatement.close();
+      preparedStatement = null;
+    }
+  }
+
+  return billLevelValue;
+}
+
+@SuppressWarnings("rawtypes")
+private String getValueFromExtendableLookup(String retrieveVal)
+{
+  String paramValue = "";
+
+  try
+  {
+    org.w3c.dom.NodeList nodes = extLkupDoc.getDocumentElement().getChildNodes();
+    if(!isNull(nodes) && nodes.getLength()>0)
+    {
+
+      for (int i = 0; i < nodes.getLength(); i++) {
+        org.w3c.dom.Node child = nodes.item(i);
+
+        if (child.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) {
+          Element element = (Element) child;
+          if (element.getTagName().equals(retrieveVal)) {
+            paramValue =  element.getTextContent();
+          }
+        }
+      }
+    }
+
+  }
+  catch (Exception e)
+  {
+    e.printStackTrace();
+  }
+
+  return paramValue;
+}
+
+private String getAccountCharacteristicTypeValue(Account account, String charType)
+{
+  String charVal="";
+  Iterator<AccountCharacteristic> itrAcctChar = account.getCharacteristics().iterator();
+
+  while(itrAcctChar.hasNext())
+  {
+    AccountCharacteristic acctChar= itrAcctChar.next();
+    if(acctChar.fetchIdCharacteristicType().getId().getIdValue().equals(charType))
+    {
+      charVal = getAcctCharVal(acctChar,charType.toString());
+      break;
+    }
+  }
+  return charVal;
+}
+
+private String getAcctCharVal(AccountCharacteristic acctChar, String charType)
+{
+  String resultStr = "";
+
+  CharacteristicType_Id charId = new CharacteristicType_Id(charType);
+  if(charId.getEntity().getCharacteristicType().toString().trim().equals(PREDEFINED_STRING))
+    resultStr = acctChar.fetchCharacteristicValue().getId().getCharacteristicValue();
+  else if(charId.getEntity().getCharacteristicType().toString().trim().equals(ADHOC_STRING))
+    resultStr = acctChar.getAdhocCharacteristicValue();
+  else if(charId.getEntity().getCharacteristicType().toString().trim().equals(FOREIGNKEY_STRING))
+    resultStr = acctChar.getCharacteristicValueForeignKey1();
+
+  return resultStr;
+}
+
+private String getPersonCharacteristicTypeValue(Person person, String charType)
+{
+  String charVal="";
+  Iterator<PersonCharacteristic> itrPersonChar = person.getCharacteristics().iterator();
+
+  while(itrPersonChar.hasNext())
+  {
+    PersonCharacteristic perChar= itrPersonChar.next();
+    if(perChar.fetchIdCharacteristicType().getId().getIdValue().equals(charType))
+    {
+      charVal = getPersonCharVal(perChar,charType.toString());
+      break;
+    }
+  }
+  return charVal;
+}
+
+private String getPersonCharVal(PersonCharacteristic personChar, String charType)
+{
+  
+  String resultStr = "";
+
+  CharacteristicType_Id charId = new CharacteristicType_Id(charType);
+  
+  if(charId.getEntity().getCharacteristicType().toString().trim().equals(PREDEFINED_STRING))
+    resultStr = personChar.fetchCharacteristicValue().getId().getCharacteristicValue();
+  else if(charId.getEntity().getCharacteristicType().toString().trim().equals(ADHOC_STRING))
+    resultStr = personChar.getAdhocCharacteristicValue();
+  else if(charId.getEntity().getCharacteristicType().toString().trim().equals(FOREIGNKEY_STRING))
+    resultStr = personChar.getCharacteristicValueForeignKey1();
+    
+
+  
+  return resultStr;
+}
+
+private String getLogoCdPath(String logoFile)
+{
+  String resultStr = " ";
+  if(!isEmptyOrNull(logoFile))
+  {
+    if(logoFile.contains(SPLEBASE)){
+      logoFile = logoFile.replaceAll(SPLEBASE, "");
+      resultStr = "file:"+ File.separator + File.separator+File.separator +  getSpleBaseDir() + logoFile;
+    }
+    else  {
+      resultStr = "file:"+ File.separator + File.separator+File.separator + logoFile;
+    }
+  }
+  return resultStr;
+}
+
+private String getFilePath(String path)
+{
+  String resultStr = "";
+  if(!isEmptyOrNull(path))
+  {
+    if(path.contains(SPLEBASE)){
+      path = path.replaceAll(SPLEBASE, "");
+      resultStr = getSpleBaseDir()  +path;
+    }
+    else  {
+      resultStr = path;
+    }
+  }
+  return resultStr;
+}
+
+private String createOutboundMsg(String billId, String xmlSource){
+
+  BusinessObjectInstance outboundBoInstance = BusinessObjectInstance.create(getOutboundMsgBo());
+  outboundBoInstance.set("type", getOutboundMsgType());
+  outboundBoInstance.set("processSignature", billId);
+  outboundBoInstance.set("xmlSource", xmlSource.toString());
+  outboundBoInstance.set("processingMethod", OutboundMessageProcessingMethodLookup.constants.BATCH);
+  outboundBoInstance.set("notificationExternalId", getExternalSystem());
+  outboundBoInstance = BusinessObjectDispatcher.add(outboundBoInstance);
+
+  return outboundBoInstance.getString("outboundMessageId");
+}
+
+private String fetchOutBoundMessageId(Bill_Id billId, String batchControlId, BigInteger batchNumber, String billExtractOutMsgType, String externalSystem) {
+
+  String outboundMessageId = null;
+  StringBuffer sb = new StringBuffer();
+  PreparedStatementQuery ps = null;
+
+  try {
+    sb.append(" SELECT OUTMSG.OUTMSG_ID FROM ");
+    sb.append(" F1_OUTMSG OUTMSG ");
+    sb.append(" WHERE OUTMSG.PROC_SIGN=:billId ");
+    sb.append(" AND OUTMSG.BATCH_CD=:batchControlId ");
+    sb.append(" AND OUTMSG.BATCH_NBR=:batchNumber ");
+    sb.append(" AND OUTMSG.OUTMSG_TYPE_CD=:outBoundMessageType ");
+    sb.append(" AND OUTMSG.NT_XID_CD=:externalSystem ");
+
+    ps = createPreparedStatement(new StringBuffer("").append(sb).toString(), "Fetch existing Outbound Message for Bill");
+
+    ps.bindId("billId", billId);
+    ps.bindString("batchControlId", batchControlId, "BATCH_CD");
+    ps.bindBigInteger("batchNumber", batchNumber);
+    ps.bindString("outBoundMessageType", billExtractOutMsgType, "OUTMSG_TYPE_CD");
+    ps.bindString("externalSystem", externalSystem, "NT_XID_CD");
+
+    ps.setAutoclose(false);
+
+    if(!isNull(ps.firstRow())){
+      outboundMessageId = ps.firstRow().getString("OUTMSG_ID");
+    }
+
+  } catch (ApplicationError e) {
+    throw e;
+  } finally {
+    if (!isNull(ps)) {
+      ps.close();
+    }
+  }
+
+  return outboundMessageId;
+}
+
+private void addBillCharacteristic(Bill_Id billId, String outMsgId){
+  //Add/Update Bill Extract Outbound Message Characteristic on Bill
+  Bill bill = billId.getEntity();
+  List<BillCharacteristic> billExtOutMsgChars = bill.getSortedCharacteristicsOfType(getBillExtOutboundMsgCharType());
+  if(!billExtOutMsgChars.isEmpty()){
+    for(BillCharacteristic billChar : billExtOutMsgChars){
+      BillCharacteristic_DTO billCharDTO = billChar.getDTO();
+      billCharDTO.setCharacteristicValueForeignKey1(outMsgId);
+      billCharDTO.setSearchCharacteristicValue(outMsgId);
+      billChar.setDTO(billCharDTO);
+    }
+  } else {
+    BillCharacteristic_Id billCharId = new BillCharacteristic_Id(getBillExtOutboundMsgCharType(), bill, BigInteger.ONE);
+    BillCharacteristic_DTO billCharDTO = (BillCharacteristic_DTO) createDTO(BillCharacteristic.class);
+    billCharDTO.setId(billCharId);
+    billCharDTO.setCharacteristicValueForeignKey1(outMsgId);
+    billCharDTO.setSearchCharacteristicValue(outMsgId);
+    billCharDTO.newEntity();
+  }
+}
+
+private String getReferenceId(String priceItemCd){
+  logger.info("Inside refId1");
+  PreparedStatementQuery preparedStatement = null;
+  SQLResultRow refIdRow = null;
+  String referenceId = "";
+
+  PriceItem_Id priceItemId = new PriceItem_Id(priceItemCd);
+
+  StringBuilder query = new StringBuilder();
+  query.append("SELECT PIC.SRCH_CHAR_VAL AS REFID ");
+  query.append("FROM  CI_PRICEITEM_CHAR PIC ");
+  query.append("WHERE  PIC.PRICEITEM_CD = :PRICEITEM_CD ");
+  query.append("AND PIC.CHAR_TYPE_CD = :CHAR_TYPE ");
+
+
+  try {
+    preparedStatement = createPreparedStatement(query.toString().toString(), " getReferenceId query ");
+    preparedStatement.bindId("PRICEITEM_CD", priceItemId);
+    preparedStatement.bindString("CHAR_TYPE", getRefIdCharTypeCd().getId().getTrimmedValue(), "CHAR_TYPE_CD");
+    refIdRow = preparedStatement.firstRow();
+
+    if(!isNull(refIdRow)){
+      referenceId = refIdRow.getString("REFID");
+    }
+  } finally {
+    if(!isNull(preparedStatement)) {
+      preparedStatement.close();
+      preparedStatement = null;
+    }
+  }
+
+  return referenceId;
+}
+
+private String getReportingDirPath(String filePath){
+
+  if (filePath.startsWith(com.splwg.ccb.domain.dataManagement.fileRequest.batch.FileRequestConstants.INSTALLED_VARIABLE.toString())) {
+    filePath = filePath.substring(com.splwg.ccb.domain.dataManagement.fileRequest.batch.FileRequestConstants.INSTALLED_VARIABLE.toString().length()+1, filePath.length());
+    filePath = com.splwg.ccb.domain.dataManagement.fileRequest.batch.FileRequestConstants.INSTALLED_DIRECTORY.toString() + File.separator + filePath;
+  } else if (filePath.startsWith(com.splwg.ccb.domain.dataManagement.fileRequest.batch.FileRequestConstants.SHARED_VARIABLE.toString())) {
+    filePath = filePath.substring(com.splwg.ccb.domain.dataManagement.fileRequest.batch.FileRequestConstants.SHARED_VARIABLE.toString().length()+1, filePath.length());
+    filePath = com.splwg.ccb.domain.dataManagement.fileRequest.batch.FileRequestConstants.SHARED_DIRECTORY.toString() + File.separator + filePath;
+  }
+
+  return filePath;
+}
+
+private SQLResultRow getCarrierAndAccountForBg(String bgPerId) {
+  StringBuilder sb = new StringBuilder();
+  PreparedStatementQuery preparedStatement = null;
+  SQLResultRow result = null;
+
+  sb.append(" select BILL_LVL_2 as CARRIER, ");
+  sb.append(" BILL_LVL_3 AS ACCOUNTID, ");
+  sb.append(" BILL_LVL_4 AS GROUPID FROM ");
+  sb.append(" C1_BILL_LVL ");
+  sb.append(" WHERE ");
+  sb.append(" BILLING_GROUP_ID = :bgPerId ");
+  sb.append(" AND BILL_LVL_1 = 'ANCIL' ");
+  sb.append(" FETCH FIRST ROW ONLY ");
+
+  try {
+    preparedStatement = createPreparedStatement(sb.toString().toString(), " getCarrierAndAccountForBg() query ");
+    preparedStatement.bindString("bgPerId", bgPerId.trim(), "BILLING_GROUP_ID");
+    result = preparedStatement.firstRow();
+  }
+  catch(Exception e) {
+    e.printStackTrace();
+  }
+  finally {
+    if(!isNull(preparedStatement)) {
+      preparedStatement.close();
+      preparedStatement = null;
+    }
+  }
+  return result;
+}
+
+private boolean hasAdhocBillableCharges(String billId) {
+  boolean hasAdhocBillableCharges = false;
+  StringBuilder sb = new StringBuilder();
+  PreparedStatementQuery preparedStatement = null;
+  SQLResultRow result = null;
+
+  sb.append("SELECT 1 FROM CI_BSEG BSEG ");
+  sb.append("WHERE BSEG.BILL_ID= :billId ");
+  sb.append("AND NOT EXISTS (SELECT 1 FROM CI_BSEG_CALC CALC, CI_BILL_CHG CHG ");
+  sb.append("WHERE BSEG.BSEG_ID = CALC.BSEG_ID ");
+  sb.append("AND CALC.BILLABLE_CHG_ID = CHG.BILLABLE_CHG_ID ");
+  sb.append("AND CHG.ADHOC_BILL_SW = 'N')");
+
+  try {
+    preparedStatement = createPreparedStatement(sb.toString().toString(), " hasAdhocBillableCharges() query ");
+    preparedStatement.bindString("billId", billId, "BILL_ID");
+    result = preparedStatement.firstRow();
+    
+    if(result != null){
+      hasAdhocBillableCharges = true; 
+    }
+  }
+  catch(Exception e) {
+    e.printStackTrace();
+  }
+  finally {
+    if(!isNull(preparedStatement)) {
+      preparedStatement.close();
+      preparedStatement = null;
+    }
+  }
+  return hasAdhocBillableCharges;
+}
+
+private Bool hasNonZeroDecimal(String value){
+
+  if (value == null || value.trim().isEmpty()) {
+    return Bool.FALSE;
+  }
+  
+  value = value.trim();
+  
+  // Validate number format
+  if (!value.matches("[-+]?\\d+(\\.\\d+)?")) {
+    return Bool.FALSE;
+  }
+  
+  // No decimal → false
+  if (!value.contains(".")) {
+    return Bool.FALSE;
+  }
+  
+  // Check if fractional part is non-zero
+  try {
+    BigDecimal bd = new BigDecimal(value.trim());
+    return bd.stripTrailingZeros().scale() > 0 ? Bool.TRUE : Bool.FALSE;
+  } catch (NumberFormatException e) {
+    return Bool.FALSE;
+  }
+
+}
